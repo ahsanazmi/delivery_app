@@ -26,7 +26,26 @@ def test_register_login_refresh_and_me(client):
     assert refreshed.json()["access_token"] != tokens["access_token"]
 
 
-def test_register_rejects_non_customer_role(client):
+def test_register_rejects_restaurant_owner_and_admin_roles(client):
+    for role in ("RESTAURANT_OWNER", "ADMIN"):
+        registration = client.post(
+            "/api/v1/auth/register",
+            json={
+                "name": "Blocked Role User",
+                "email": f"blocked-{role.lower()}@example.com",
+                "password": "secure-pass-123",
+                "phone": f"90000{'1' if role == 'ADMIN' else '2'}00000",
+                "role": role,
+            },
+        )
+        assert registration.status_code == 400
+        assert "customer" in registration.json()["detail"].lower()
+
+
+def test_register_allows_rider_role(client):
+    """Unlike RESTAURANT_OWNER/ADMIN, RIDER is open self-registration —
+    delivery partners sign up like customers, then get vetted in a later
+    Rider Portal phase before they can actually go online."""
     registration = client.post(
         "/api/v1/auth/register",
         json={
@@ -37,8 +56,8 @@ def test_register_rejects_non_customer_role(client):
             "role": "RIDER",
         },
     )
-    assert registration.status_code == 400
-    assert "customer" in registration.json()["detail"].lower()
+    assert registration.status_code == 201
+    assert registration.json()["role"] == "RIDER"
 
 
 def test_login_accepts_phone_and_customer_role_default(client):

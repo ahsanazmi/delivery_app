@@ -28,3 +28,28 @@ class ReviewRead(BaseModel):
     comment: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class OrderReviewCreate(BaseModel):
+    restaurant_rating: int = Field(ge=1, le=5)
+    delivery_rating: int = Field(ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=1000)
+
+
+class OrderReviewUpdate(BaseModel):
+    restaurant_rating: int | None = Field(default=None, ge=1, le=5)
+    delivery_rating: int | None = Field(default=None, ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=1000)
+
+
+class OrderReviewRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    order_id: UUID
+    user_id: UUID
+    restaurant_rating: int
+    delivery_rating: int
+    comment: str | None
+    created_at: datetime
+    updated_at: datetime

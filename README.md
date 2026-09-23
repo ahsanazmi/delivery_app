@@ -1,56 +1,52 @@
-# Welcome to your Expo app 👋
+# Say Hi Chai
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A local delivery platform: one shared FastAPI backend + one PostgreSQL database, serving four independent apps.
 
-## Get started
-
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```text
+                         ┌─────────────────────────┐
+                         │    SHARED FASTAPI        │
+                         │       BACKEND            │
+                         │                          │
+                         │ Customer / Rider /        │
+                         │ Restaurant / Admin APIs    │
+                         └────────────┬─────────────┘
+                                      │
+                ┌─────────────────────┼─────────────────────┬───────────────┐
+                ▼                     ▼                     ▼               ▼
+        customer-mobile        rider-mobile           business-web     admin-web
+        📱 Android              📱 Android             💻 Web           💻 Web
+        Customer                Rider                  Restaurant       Admin
+                                                         Owner
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Structure
 
-### Other setup steps
+```text
+say_hi_chai/
+├── backend/          FastAPI + SQLAlchemy + Alembic + PostgreSQL (shared)
+├── customer-mobile/  Customer Android app (Expo Router + React Native)
+├── rider-mobile/     Rider Android app (Expo Router + React Native)
+├── business-web/     Restaurant-owner web app (React + Vite)
+├── admin-web/        Admin web panel (React + Vite)
+└── docs/             Architecture notes, per-phase docs
+```
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Each app is a fully independent project with its own `package.json`/build config — see its README for how to run it. None of them share a backend or database of their own; they all talk to `backend/`.
 
-## Learn more
+## Run the backend
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+cd backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # adjust DATABASE_URL / CORS_ORIGINS if needed
+alembic upgrade head
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Postgres itself runs via `backend/docker-compose.yml` (`docker compose up -d` from `backend/`).
 
-## Join the community
+## Run an app
 
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- `customer-mobile/`, `rider-mobile/`: `npm install && npm run android` (or `npm start` for the Expo dev server). Set `EXPO_PUBLIC_API_BASE_URL` in `.env.development` if auto-detection of the backend host doesn't work.
+- `business-web/`, `admin-web/`: `npm install && npm run dev`. Set `VITE_API_BASE_URL` in `.env` if the backend isn't on `localhost:8000`. Their dev-server origins (`5173`, `5174` by default) must be listed in the backend's `CORS_ORIGINS`.

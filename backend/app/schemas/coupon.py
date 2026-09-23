@@ -34,3 +34,22 @@ class CouponRead(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+
+
+class CustomerCouponRead(BaseModel):
+    """What a customer is allowed to see about a coupon — no usage_limit/
+    is_active internals, just enough to decide whether to apply it."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    discount_type: DiscountType
+    discount_value: Decimal
+    min_order: Decimal
+    max_discount: Decimal | None
+    end_date: datetime | None
+    restaurant_id: UUID | None
+
+
+class ApplyCouponRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=64)

@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/features/auth/session-context.tsx","./src/pages/Dashboard.tsx","./src/pages/Login.tsx","./src/services/api/apiClient.ts","./src/services/api/authApi.ts","./src/services/api/restaurantApi.ts"],"errors":true,"version":"6.0.3"}

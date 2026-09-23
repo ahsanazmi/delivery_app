@@ -32,11 +32,13 @@ def test_assign_rider_and_list_rider_orders(client):
 
     order = Order(
         user_id=customer.id,
+        customer_name=customer.name,
+        customer_email=customer.email,
         restaurant_id="rest_1",
         restaurant_name="Tea House",
         restaurant_phone="1234567890",
         order_number="ORD-TEST-1",
-        status=OrderStatus.PENDING,
+        status=OrderStatus.CONFIRMED,
         payment_method="cod",
         subtotal=250,
         delivery_fee=25,
@@ -53,7 +55,7 @@ def test_assign_rider_and_list_rider_orders(client):
 
     assigned = assign_rider_to_order(db, order, rider.id)
     assert assigned.rider_id == rider.id
-    assert assigned.status == OrderStatus.CONFIRMED
+    assert assigned.status == OrderStatus.RIDER_ASSIGNED
 
     rider_orders = list_rider_orders(db, rider.id)
     assert [item.id for item in rider_orders] == [order.id]

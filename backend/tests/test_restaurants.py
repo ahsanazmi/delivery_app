@@ -36,7 +36,7 @@ def restaurant_payload(**overrides):
 
 
 def test_restaurant_owner_can_create_manage_and_deactivate(db):
-    owner = User(name="Owner", email="owner@example.com", password_hash="x", role=UserRole.RESTAURANT)
+    owner = User(name="Owner", email="owner@example.com", password_hash="x", role=UserRole.RESTAURANT_OWNER)
     db.add(owner)
     db.commit()
 
@@ -54,8 +54,8 @@ def test_restaurant_owner_can_create_manage_and_deactivate(db):
 
 
 def test_owner_cannot_manage_another_restaurant(db):
-    owner = User(name="Owner", email="owner@example.com", password_hash="x", role=UserRole.RESTAURANT)
-    other_owner = User(name="Other", email="other@example.com", password_hash="x", role=UserRole.RESTAURANT)
+    owner = User(name="Owner", email="owner@example.com", password_hash="x", role=UserRole.RESTAURANT_OWNER)
+    other_owner = User(name="Other", email="other@example.com", password_hash="x", role=UserRole.RESTAURANT_OWNER)
     db.add_all([owner, other_owner])
     db.commit()
     restaurant = restaurant_service.create_restaurant(db, restaurant_payload(), owner)

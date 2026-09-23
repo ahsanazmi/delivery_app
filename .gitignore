@@ -38,7 +38,23 @@ yarn-error.*
 
 example
 
-# generated native folders
-/ios
-/android
+# generated native folders (any app)
+ios/
+android/
+
+# env files (any app) — every real env file, in every app, at every
+# environment name (.env, .env.development, .env.production, ...), but
+# never the *.example templates, which are meant to be committed.
 .env
+.env.*
+!.env.example
+
+# real provider credentials dropped in as a plain file rather than an env
+# var — same "never commit a secret" rule as .env itself. Test-mode keys
+# only, but still a real, working credential pair.
+rzp-test-key.csv
+
+# web build output (any app)
+node_modules/
+dist/
+build/

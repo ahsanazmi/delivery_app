@@ -1,17 +1,26 @@
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.v1.deps import CurrentUser, DbSession
+from app.api.v1.deps import DbSession, require_customer
 from app.models.review import ReviewTarget
+from app.models.user import User
 from app.schemas.review import ReviewCreate, ReviewRead
 from app.services.reviews import average_rating_for_target, create_review, list_reviews_for_target
 
 router = APIRouter()
 
+# API Contract Validation (Phase 18) — confirmed unused by every frontend
+# app today (customer-mobile creates reviews via
+# /api/v1/customer/orders/{id}/review instead); hardened for consistency
+# with every other write path regardless, rather than left on the bare
+# CurrentUser (any authenticated role) dependency this file was missed
+# with during the earlier role-isolation pass (Phase 2), which only
+# covered app/api/v1/customer/*.py.
+
 
 @router.post("", response_model=ReviewRead, status_code=status.HTTP_201_CREATED)
-def create_review_endpoint(payload: ReviewCreate, db: DbSession, current_user: CurrentUser) -> ReviewRead:
+def create_review_endpoint(payload: ReviewCreate, db: DbSession, current_user: User = Depends(require_customer)) -> ReviewRead:
     if payload.target_type == ReviewTarget.RIDER and not payload.rider_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="rider_id is required for rider reviews")
     if payload.target_type == ReviewTarget.RESTAURANT and not payload.restaurant_id:

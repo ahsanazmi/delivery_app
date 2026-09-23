@@ -1,5 +1,7 @@
 # Customer Profile — Phase 2
 
+> **Post-split note:** the app was later restructured (see `docs/architecture/role-architecture.md`) into separate `customer-mobile`/`rider-mobile`/`business-web`/`admin-web` apps. Any path below referencing the old root `src/app/...`, `src/services/...`, `src/features/...` etc. now lives at the equivalent `customer-mobile/...` path.
+
 This document describes the customer profile endpoints and the frontend behavior implemented in Phase 2.
 
 ## Backend endpoints

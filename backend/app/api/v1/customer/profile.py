@@ -1,8 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
-from app.api.v1.deps import CurrentUser, DbSession
+from fastapi import APIRouter, Depends
+from app.api.v1.deps import DbSession, require_customer
+from app.models.user import User
 from app.schemas.user import UserRead
 from pydantic import BaseModel, EmailStr, constr
-from app.models.user import UserRole
 
 router = APIRouter()
 
@@ -14,15 +14,12 @@ class ProfileUpdate(BaseModel):
 
 
 @router.get("/profile", response_model=UserRead)
-def read_profile(current_user: CurrentUser) -> UserRead:
+def read_profile(current_user: User = Depends(require_customer)) -> UserRead:
     return current_user
 
 
 @router.patch("/profile", response_model=UserRead)
-def update_profile(payload: ProfileUpdate, db: DbSession, current_user: CurrentUser) -> UserRead:
-    # Only customers may use this endpoint
-    if current_user.role != UserRole.CUSTOMER:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+def update_profile(payload: ProfileUpdate, db: DbSession, current_user: User = Depends(require_customer)) -> UserRead:
     # update allowed fields only on current_user
     if payload.name is not None:
         current_user.name = payload.name.strip()

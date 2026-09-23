@@ -1,4 +1,36 @@
 # customer subpackage for v1 APIs
-from . import profile
+from . import (
+    profile,
+    addresses,
+    restaurants,
+    categories,
+    products,
+    search,
+    cart,
+    checkout,
+    orders,
+    tracking,
+    favorites,
+    notifications,
+    payments,
+    reviews,
+    coupons,
+)
 
-__all__ = ["profile"]
+__all__ = [
+    "profile",
+    "addresses",
+    "restaurants",
+    "categories",
+    "products",
+    "search",
+    "cart",
+    "checkout",
+    "orders",
+    "tracking",
+    "favorites",
+    "notifications",
+    "payments",
+    "reviews",
+    "coupons",
+]

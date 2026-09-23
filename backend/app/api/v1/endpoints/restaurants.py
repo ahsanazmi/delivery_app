@@ -31,7 +31,7 @@ def list_restaurants(
 def create_restaurant(
     payload: RestaurantCreate,
     db: DbSession,
-    current_user: User = Depends(require_roles(UserRole.RESTAURANT, UserRole.ADMIN)),
+    current_user: User = Depends(require_roles(UserRole.RESTAURANT_OWNER, UserRole.ADMIN)),
 ) -> RestaurantRead:
     return restaurant_service.create_restaurant(db, payload, current_user)
 

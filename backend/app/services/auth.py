@@ -2,8 +2,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, verify_password
+from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.schemas.auth import RegisterRequest
+from app.services.notifications import notify_admins
 
 
 def get_user_by_email(db: Session, email: str) -> User | None:
@@ -33,6 +35,14 @@ def register_user(db: Session, payload: RegisterRequest) -> User:
         role=payload.role or UserRole.CUSTOMER,
     )
     db.add(user)
+    db.flush()
+    if user.role == UserRole.RIDER:
+        # Admin Portal Phase 20 — only riders, not every new signup; a new
+        # customer isn't an operational alert an admin needs to act on.
+        notify_admins(
+            db, NotificationType.NEW_RIDER_REGISTERED, "New rider registered",
+            f"{user.name} has registered as a rider and is awaiting approval.",
+        )
     db.commit()
     db.refresh(user)
     return user

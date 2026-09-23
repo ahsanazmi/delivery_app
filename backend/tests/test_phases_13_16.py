@@ -21,7 +21,7 @@ def db():
 
 
 def test_search_restaurants_by_name(db):
-    owner = User(name="Owner", email="owner@example.com", password_hash="x", role=UserRole.RESTAURANT)
+    owner = User(name="Owner", email="owner@example.com", password_hash="x", role=UserRole.RESTAURANT_OWNER)
     db.add(owner)
     db.commit()
 
