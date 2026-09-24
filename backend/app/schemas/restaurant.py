@@ -13,6 +13,8 @@ class RestaurantCreate(BaseModel):
     address: str = Field(min_length=5, max_length=2000)
     latitude: Decimal = Field(ge=-90, le=90, max_digits=10, decimal_places=7)
     longitude: Decimal = Field(ge=-180, le=180, max_digits=10, decimal_places=7)
+    formatted_address: str | None = Field(default=None, max_length=1000)
+    place_id: str | None = Field(default=None, max_length=255)
     # None means "use the platform default" (Admin Portal Phase 22's
     # PlatformSettings.default_minimum_order / default_delivery_fee) —
     # resolved in services.restaurants.create_restaurant, never here.
@@ -28,6 +30,8 @@ class RestaurantUpdate(BaseModel):
     address: str | None = Field(default=None, min_length=5, max_length=2000)
     latitude: Decimal | None = Field(default=None, ge=-90, le=90, max_digits=10, decimal_places=7)
     longitude: Decimal | None = Field(default=None, ge=-180, le=180, max_digits=10, decimal_places=7)
+    formatted_address: str | None = Field(default=None, max_length=1000)
+    place_id: str | None = Field(default=None, max_length=255)
     minimum_order: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
     delivery_fee: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
 
@@ -55,6 +59,8 @@ class RestaurantProfileUpdate(BaseModel):
     address: str | None = Field(default=None, min_length=5, max_length=2000)
     latitude: Decimal | None = Field(default=None, ge=-90, le=90, max_digits=10, decimal_places=7)
     longitude: Decimal | None = Field(default=None, ge=-180, le=180, max_digits=10, decimal_places=7)
+    formatted_address: str | None = Field(default=None, max_length=1000)
+    place_id: str | None = Field(default=None, max_length=255)
     minimum_order: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
     delivery_fee: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
     logo_url: HttpUrl | None = None
@@ -73,6 +79,8 @@ class RestaurantRead(BaseModel):
     address: str
     latitude: Decimal
     longitude: Decimal
+    formatted_address: str | None
+    place_id: str | None
     logo_url: str | None
     cover_image_url: str | None
     minimum_order: Decimal

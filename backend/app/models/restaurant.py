@@ -32,6 +32,13 @@ class Restaurant(Base):
     address: Mapped[str] = mapped_column(Text)
     latitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
     longitude: Mapped[Decimal] = mapped_column(Numeric(10, 7))
+    # Maps & Location System Phase 3 — same fields Phase 2 added to
+    # Address, same reasoning: nullable, since every existing restaurant
+    # already has a valid required lat/lng from manual entry and must
+    # keep working unchanged; only populated once an owner actually
+    # sets the location via the map/search flow (Phase 10).
+    formatted_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    place_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     logo_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     cover_image_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     minimum_order: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)

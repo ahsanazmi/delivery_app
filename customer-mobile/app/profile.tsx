@@ -110,6 +110,11 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        <Pressable onPress={() => router.push("/addresses")} style={styles.menuItem}>
+          <Text style={styles.menuItemText}>My addresses</Text>
+          <Text style={styles.menuItemChevron}>›</Text>
+        </Pressable>
+
         <Pressable onPress={() => router.push("/payments")} style={styles.menuItem}>
           <Text style={styles.menuItemText}>Payment history</Text>
           <Text style={styles.menuItemChevron}>›</Text>

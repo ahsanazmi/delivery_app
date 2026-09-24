@@ -11,6 +11,11 @@ export type RestaurantSummary = {
   address: string;
   latitude: number | string;
   longitude: number | string;
+  // Maps & Location System Phase 3 — nullable until the owner sets a
+  // location via the map/search flow (Phase 10); manual lat/lng entry
+  // (today's only path) never populates these.
+  formatted_address: string | null;
+  place_id: string | null;
   logo_url: string | null;
   cover_image_url: string | null;
   minimum_order: number | string;
@@ -53,6 +58,8 @@ export type RestaurantProfileUpdatePayload = {
   address?: string;
   latitude?: number;
   longitude?: number;
+  formatted_address?: string | null;
+  place_id?: string | null;
   minimum_order?: number;
   delivery_fee?: number;
   logo_url?: string | null;

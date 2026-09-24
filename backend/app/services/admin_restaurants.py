@@ -143,6 +143,11 @@ def get_admin_restaurant_detail(db: Session, restaurant_id: UUID) -> AdminRestau
         **summary.model_dump(),
         owner_email=owner.email if owner else None,
         owner_phone=owner.phone if owner else None,
+        address=restaurant.address,
+        latitude=restaurant.latitude,
+        longitude=restaurant.longitude,
+        formatted_address=restaurant.formatted_address,
+        place_id=restaurant.place_id,
         menu=[AdminMenuItem(id=p.id, name=p.name, price=p.price, is_active=p.is_active) for p in menu],
         recent_orders=[
             AdminRecentOrder(

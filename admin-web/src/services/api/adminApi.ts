@@ -291,6 +291,13 @@ export type AdminRestaurantDetail = AdminRestaurantSummary & {
   owner_phone: string | null;
   menu: AdminMenuItem[];
   recent_orders: AdminRecentOrder[];
+  // Maps & Location System Phase 3 — "Admin should be able to inspect
+  // the location," previously not exposed on this type at all.
+  address: string;
+  latitude: string;
+  longitude: string;
+  formatted_address: string | null;
+  place_id: string | null;
 };
 
 export type AdminRestaurantListParams = {

@@ -84,7 +84,7 @@ export async function registerForPushNotifications(accessToken: string): Promise
   const projectId = getEasProjectId();
   if (!projectId) {
     // Getting a real Expo push token requires an EAS project id (set via
-    // `npx eas init`, landing in app.json's `extra.eas.projectId`). Without
+    // `npx eas init`, landing in app.config.ts's `extra.eas.projectId`). Without
     // one, there's nothing further we can do here — fail quietly rather than
     // crash the app over a one-time setup step.
     console.warn(

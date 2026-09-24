@@ -210,6 +210,16 @@ export default function RestaurantDetails() {
           <div className="label">Created</div>
           <div className="value" style={{ fontSize: 16 }}>{new Date(restaurant.created_at).toLocaleDateString()}</div>
         </div>
+        {/* Maps & Location System Phase 3 — "Admin should be able to
+            inspect the location." Plain text only; a map view is Phase 10. */}
+        <div className="stat-card">
+          <div className="label">Location</div>
+          <div className="value" style={{ fontSize: 13 }}>
+            {restaurant.address}
+            <br />
+            {restaurant.latitude}, {restaurant.longitude}
+          </div>
+        </div>
       </div>
 
       <h2 className="section-title">Menu</h2>

@@ -11,11 +11,14 @@ class AddressCreate(BaseModel):
     phone: str = Field(min_length=8, max_length=20)
     address_line: str = Field(min_length=3, max_length=500)
     city: str = Field(min_length=2, max_length=120)
+    district: str | None = Field(default=None, max_length=120)
     state: str = Field(min_length=2, max_length=120)
     postal_code: str = Field(min_length=3, max_length=20)
     landmark: str | None = Field(default=None, max_length=200)
     latitude: Decimal | None = Field(default=None, ge=-90, le=90, max_digits=10, decimal_places=7)
     longitude: Decimal | None = Field(default=None, ge=-180, le=180, max_digits=10, decimal_places=7)
+    formatted_address: str | None = Field(default=None, max_length=1000)
+    place_id: str | None = Field(default=None, max_length=255)
     is_default: bool = False
 
 
@@ -25,11 +28,14 @@ class AddressUpdate(BaseModel):
     phone: str | None = Field(default=None, min_length=8, max_length=20)
     address_line: str | None = Field(default=None, min_length=3, max_length=500)
     city: str | None = Field(default=None, min_length=2, max_length=120)
+    district: str | None = Field(default=None, max_length=120)
     state: str | None = Field(default=None, min_length=2, max_length=120)
     postal_code: str | None = Field(default=None, min_length=3, max_length=20)
     landmark: str | None = Field(default=None, max_length=200)
     latitude: Decimal | None = Field(default=None, ge=-90, le=90, max_digits=10, decimal_places=7)
     longitude: Decimal | None = Field(default=None, ge=-180, le=180, max_digits=10, decimal_places=7)
+    formatted_address: str | None = Field(default=None, max_length=1000)
+    place_id: str | None = Field(default=None, max_length=255)
     is_default: bool | None = None
 
 
@@ -43,11 +49,14 @@ class AddressRead(BaseModel):
     phone: str
     address_line: str
     city: str
+    district: str | None
     state: str
     postal_code: str
     landmark: str | None
     latitude: Decimal | None
     longitude: Decimal | None
+    formatted_address: str | None
+    place_id: str | None
     is_default: bool
     is_active: bool
     created_at: datetime

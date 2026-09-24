@@ -187,6 +187,14 @@ class AdminRestaurantDetail(AdminRestaurantSummary):
     owner_phone: str | None
     menu: list[AdminMenuItem]
     recent_orders: list[AdminRecentOrder]
+    # Maps & Location System Phase 3 — "Admin should be able to inspect
+    # the location" was previously unmet: neither this schema nor
+    # AdminRestaurantSummary carried address/coordinates at all.
+    address: str
+    latitude: Decimal
+    longitude: Decimal
+    formatted_address: str | None
+    place_id: str | None
 
 
 class AdminRestaurantRejectRequest(BaseModel):

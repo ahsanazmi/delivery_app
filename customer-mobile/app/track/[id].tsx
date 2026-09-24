@@ -4,6 +4,7 @@ import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, Vi
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useSession } from "@/features/auth/session-context";
+import { RiderMap } from "@/features/tracking/RiderMap";
 import { useOrderTracking } from "@/features/tracking/use-order-tracking";
 import type { OrderStatus } from "@/services/api/ordersApi";
 
@@ -171,14 +172,25 @@ export default function TrackOrderScreen() {
               </View>
 
               {riderLocation ? (
-                <Pressable style={styles.mapCard} onPress={openInMaps}>
-                  <Text style={styles.mapEmoji}>📍</Text>
-                  <Text style={styles.mapTitle}>
-                    {distance !== null ? `${distance.toFixed(1)} km away` : "Rider location live"}
-                  </Text>
-                  <Text style={styles.mapMeta}>Updated {relativeTimeLabel(riderLocation.updated_at)}</Text>
-                  <Text style={styles.mapAction}>Open in Maps</Text>
-                </Pressable>
+                <View style={styles.mapCard}>
+                  <RiderMap
+                    riderLocation={riderLocation}
+                    deliveryLocation={
+                      tracking.delivery_latitude != null && tracking.delivery_longitude != null
+                        ? { latitude: tracking.delivery_latitude, longitude: tracking.delivery_longitude }
+                        : null
+                    }
+                  />
+                  <View style={styles.mapFooter}>
+                    <Text style={styles.mapFooterTitle}>
+                      {distance !== null ? `${distance.toFixed(1)} km away` : "Rider location live"}
+                    </Text>
+                    <Text style={styles.mapFooterMeta}>Updated {relativeTimeLabel(riderLocation.updated_at)}</Text>
+                    <Pressable onPress={openInMaps}>
+                      <Text style={styles.mapAction}>Open in Google Maps</Text>
+                    </Pressable>
+                  </View>
+                </View>
               ) : (
                 <View style={styles.mapPlaceholder}>
                   <Text style={styles.mapEmoji}>🗺️</Text>
@@ -307,11 +319,13 @@ const styles = StyleSheet.create({
   mapCard: {
     backgroundColor: "#241913",
     borderRadius: 18,
-    paddingVertical: 28,
-    alignItems: "center",
-    justifyContent: "center",
+    overflow: "hidden",
   },
-  mapTitle: { color: "#fff", fontWeight: "800", fontSize: 18, marginTop: 4 },
-  mapMeta: { color: "#C8B8B0", fontSize: 12, marginTop: 6 },
-  mapAction: { color: "#FFD9C2", fontWeight: "800", fontSize: 13, marginTop: 14 },
+  mapFooter: {
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+  },
+  mapFooterTitle: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  mapFooterMeta: { color: "#C8B8B0", fontSize: 12, marginTop: 4 },
+  mapAction: { color: "#FFD9C2", fontWeight: "800", fontSize: 13, marginTop: 10 },
 });

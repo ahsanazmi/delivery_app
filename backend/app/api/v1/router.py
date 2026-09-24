@@ -39,6 +39,7 @@ api_router.include_router(customer.restaurants.router, prefix="/customer", tags=
 api_router.include_router(customer.categories.router, prefix="/customer", tags=["customer"])
 api_router.include_router(customer.products.router, prefix="/customer", tags=["customer"])
 api_router.include_router(customer.search.router, prefix="/customer", tags=["customer"])
+api_router.include_router(customer.location.router, prefix="/customer", tags=["customer"])
 api_router.include_router(customer.cart.router, prefix="/customer", tags=["customer"])
 api_router.include_router(customer.checkout.router, prefix="/customer", tags=["customer"])
 api_router.include_router(customer.orders.router, prefix="/customer", tags=["customer"])
