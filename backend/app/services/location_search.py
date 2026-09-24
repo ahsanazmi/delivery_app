@@ -1,16 +1,22 @@
-"""Maps & Location System Phase 9 — Forward Geocoding / Address Search.
+"""Maps & Location System Phase 8/9 — Reverse Geocoding and Forward
+Geocoding / Address Search.
 
 Proxies to Photon (https://github.com/komoot/photon), an open-source
-geocoder built on OpenStreetMap data, purpose-built for exactly this
-"as-you-type" place-suggestion UX (unlike raw Nominatim, which is a
-general-purpose geocoder). Called from the backend, not directly from
-customer-mobile, for two reasons: (1) Photon needs no API key at all,
-so there's no credential to keep off the client, but komoot's public
-instance has a documented, GLOBAL 1 request/second fair-use limit —
-proxying through one backend process lets every customer's searches
-share a single, correctly-throttled queue instead of each device
-hammering it independently; (2) it keeps the provider swappable
-(PHOTON_API_BASE_URL) without ever touching customer-mobile.
+geocoder built on OpenStreetMap data — its forward-search endpoint is
+purpose-built for "as-you-type" place suggestions (unlike raw Nominatim,
+a general-purpose geocoder), and its reverse endpoint is the real
+geocoding service behind "what address is at this coordinate" (Phase 8's
+own instruction: "do not trust arbitrary client-provided formatted
+addresses when coordinates are available" — this is the actual lookup
+that makes that possible, run here, not fabricated on the client).
+Called from the backend, not directly from customer-mobile, for two
+reasons: (1) Photon needs no API key at all, so there's no credential to
+keep off the client, but komoot's public instance has a documented,
+GLOBAL 1 request/second fair-use limit — proxying through one backend
+process lets every customer's forward AND reverse calls share a single,
+correctly-throttled queue instead of each device hammering it
+independently; (2) it keeps the provider swappable (PHOTON_API_BASE_URL)
+without ever touching customer-mobile.
 """
 
 import logging
@@ -117,24 +123,30 @@ def _to_result(feature: dict) -> PlaceSearchResult | None:
     )
 
 
+def _call_photon(path: str, params: dict) -> dict:
+    """Shared HTTP call for both forward and reverse geocoding — same
+    throttle, same timeout, same error handling, since both hit the
+    same rate-limited instance."""
+    _wait_for_throttle_slot()
+    try:
+        response = httpx.get(
+            f"{settings.PHOTON_API_BASE_URL}{path}",
+            params=params,
+            timeout=_REQUEST_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPError as exc:
+        logger.warning("Geocoding provider unreachable (%s): %s", path, exc)
+        raise PlaceSearchUnavailableError("Address search is temporarily unavailable.") from exc
+
+
 def search_places(query: str, *, limit: int = 6) -> list[PlaceSearchResult]:
     query = query.strip()
     if len(query) < 2:
         return []
 
-    _wait_for_throttle_slot()
-
-    try:
-        response = httpx.get(
-            f"{settings.PHOTON_API_BASE_URL}/",
-            params={"q": query, "limit": limit},
-            timeout=_REQUEST_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        body = response.json()
-    except httpx.HTTPError as exc:
-        logger.warning("Place search provider unreachable: %s", exc)
-        raise PlaceSearchUnavailableError("Address search is temporarily unavailable.") from exc
+    body = _call_photon("/api/", {"q": query, "limit": limit})
 
     results = []
     for feature in body.get("features", []):
@@ -142,3 +154,18 @@ def search_places(query: str, *, limit: int = 6) -> list[PlaceSearchResult]:
         if result is not None:
             results.append(result)
     return results
+
+
+def reverse_geocode(latitude: Decimal, longitude: Decimal) -> PlaceSearchResult | None:
+    """Maps & Location System Phase 8 — the backend's own authoritative
+    answer to "what address is at this coordinate," used when a customer
+    confirms a point on the map picker. Never returns something the
+    client supplied itself; either a real Photon-derived result, or
+    None if nothing was found there (a customer can still fill the
+    address in by hand either way — this never blocks saving)."""
+    body = _call_photon("/reverse", {"lat": str(latitude), "lon": str(longitude)})
+
+    features = body.get("features", [])
+    if not features:
+        return None
+    return _to_result(features[0])

@@ -1,21 +1,36 @@
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useLocationPicker } from "@/features/addresses/location-picker-context";
+import { usePickedPlace } from "@/features/addresses/place-search-context";
+import { useSession } from "@/features/auth/session-context";
+import { requestDeviceLocation } from "@/features/location/device-location";
+import { reverseGeocode } from "@/services/api/locationSearchApi";
 
-// Maps & Location System Phase 6 — Customer Map Picker.
+// Maps & Location System Phase 6/7/8 — Customer Map Picker + Device
+// Location Permission + Reverse Geocoding. Auto-centering on the
+// customer's real position is purely a convenience here, never a
+// requirement — dragging the pin or tapping the map (map selection, per
+// Phase 7's own "must remain available" list) works identically
+// regardless of permission state, so a denied/disabled/unavailable
+// result never blocks anything; it just means the map opens centered on
+// the default region (Azamgarh, this platform's actual first launch
+// city) with a small inline note instead of a blocking Alert — the
+// customer opens this screen specifically to place a pin themselves, so
+// interrupting that with a popup every time location is off would be
+// the wrong trade-off.
 //
-// Deliberately does NOT request device location permission itself (that
-// full permission-state handling — granted/denied/permanently-denied/
-// GPS-disabled — is Phase 7's own explicit scope); this best-effort
-// tries the same navigator.geolocation call checkout.tsx already uses
-// for its own one-shot "use my location" button, and falls back to a
-// fixed default center (Azamgarh — this platform's actual first launch
-// city) if it's unavailable or denied, rather than blocking the picker
-// entirely on a permission prompt.
+// Confirming a pin (Phase 8) reverse-geocodes it on the backend — never
+// a client-fabricated address for a coordinate — and hands the full
+// result to AddressForm via the same place-search-context Phase 9
+// already established, so a map pin now pre-fills the same address text
+// fields a search result does. If reverse geocoding finds nothing or
+// the service is unavailable, this falls back to Phase 6's original
+// behavior (just the coordinate, via location-picker-context) — never
+// blocking the confirm action itself.
 const DEFAULT_REGION: Region = {
   latitude: 26.068,
   longitude: 83.1836,
@@ -25,28 +40,55 @@ const DEFAULT_REGION: Region = {
 
 export default function MapPickerScreen() {
   const router = useRouter();
+  const { accessToken } = useSession();
   const { setPickedLocation } = useLocationPicker();
+  const { setPickedPlace } = usePickedPlace();
   const [region, setRegion] = useState<Region>(DEFAULT_REGION);
   const [marker, setMarker] = useState({ latitude: DEFAULT_REGION.latitude, longitude: DEFAULT_REGION.longitude });
+  const [usedDefaultCenter, setUsedDefaultCenter] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const next = { latitude: position.coords.latitude, longitude: position.coords.longitude };
+    let cancelled = false;
+    requestDeviceLocation().then((result) => {
+      if (cancelled) return;
+      if (result.status === "granted") {
+        const next = { latitude: result.latitude, longitude: result.longitude };
         setMarker(next);
         setRegion({ ...next, latitudeDelta: 0.01, longitudeDelta: 0.01 });
-      },
-      () => {
-        // Silently keep the default region — Phase 7 owns telling the
-        // customer why, with real permission-state messaging.
-      },
-      { enableHighAccuracy: true, timeout: 8000 },
-    );
+      } else {
+        setUsedDefaultCenter(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  function handleConfirm() {
-    setPickedLocation(marker);
+  async function handleConfirm() {
+    if (!accessToken) {
+      setPickedLocation(marker);
+      router.back();
+      return;
+    }
+    setConfirming(true);
+    try {
+      const { result } = await reverseGeocode(accessToken, marker.latitude, marker.longitude);
+      if (result) {
+        setPickedPlace(result);
+      } else {
+        // Nothing found at this exact point (open water, unmapped area)
+        // — still confirm the coordinate itself; the customer types the
+        // address text by hand, same as before this phase existed.
+        setPickedLocation(marker);
+      }
+    } catch {
+      // Reverse geocoding unavailable right now — never block confirming
+      // the pin over it.
+      setPickedLocation(marker);
+    } finally {
+      setConfirming(false);
+    }
     router.back();
   }
 
@@ -79,8 +121,13 @@ export default function MapPickerScreen() {
 
       <View style={styles.footer}>
         <Text style={styles.hint}>Tap the map or drag the pin to move the delivery location.</Text>
-        <Pressable style={styles.confirmButton} onPress={handleConfirm}>
-          <Text style={styles.confirmLabel}>Confirm location</Text>
+        {usedDefaultCenter && (
+          <Text style={styles.locationHint}>
+            Couldn't use your current location — move the pin to your delivery spot.
+          </Text>
+        )}
+        <Pressable style={styles.confirmButton} onPress={handleConfirm} disabled={confirming}>
+          {confirming ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmLabel}>Confirm location</Text>}
         </Pressable>
       </View>
     </SafeAreaView>
@@ -118,6 +165,7 @@ const styles = StyleSheet.create({
     borderColor: "#F0E3DC",
   },
   hint: { color: "#6D625D", fontSize: 13, textAlign: "center", marginBottom: 12 },
+  locationHint: { color: "#8A4B12", fontSize: 12, textAlign: "center", marginBottom: 12, marginTop: -8 },
   confirmButton: {
     height: 48,
     borderRadius: 12,

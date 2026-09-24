@@ -39,16 +39,23 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
     RAZORPAY_WEBHOOK_SECRET: str = ""
-    # Maps & Location System Phase 9 — Forward Geocoding / Address
-    # Search. Photon (komoot's open-source OSM geocoder) rather than
-    # Google Places — no API key at all, so unlike every other provider
-    # setting above this one is never "blank means disabled"; blank here
-    # means "use komoot's free public instance" (their own documented
-    # 1 request/second fair-use limit — see location_search.py's own
-    # module-level throttle). Point this at a self-hosted Photon
-    # instance, or a different Nominatim-compatible provider's base URL,
-    # to swap providers without any code change.
-    PHOTON_API_BASE_URL: str = "https://photon.komoot.io/api"
+    # Maps & Location System Phase 9/8 — Forward Geocoding / Address
+    # Search and Reverse Geocoding. Photon (komoot's open-source OSM
+    # geocoder) rather than Google Places/Geocoding — no API key at all,
+    # so unlike every other provider setting above this one is never
+    # "blank means disabled"; blank here means "use komoot's free public
+    # instance" (their own documented 1 request/second fair-use limit —
+    # see location_search.py's own module-level throttle, shared by both
+    # forward and reverse calls since they hit the same instance).
+    # This is the *root* URL — Photon's own forward-search endpoint
+    # lives under it at /api/, while reverse geocoding is a sibling path
+    # at /reverse, not nested under /api/ at all (confirmed against the
+    # real public instance; not guessed), so location_search.py builds
+    # each full path from this same root rather than one being derived
+    # from the other. Point this at a self-hosted Photon instance, or a
+    # different Nominatim-compatible provider's root URL, to swap
+    # providers without any code change.
+    PHOTON_API_BASE_URL: str = "https://photon.komoot.io"
     # Comma-separated list of browser origins allowed to call this API (the two
     # Vite web apps, both hostname spellings since browsers treat localhost and
     # 127.0.0.1 as different origins). 5180 is included because admin-web's

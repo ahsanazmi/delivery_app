@@ -6,6 +6,7 @@ import { useConfirm } from "@/components/dialog/ConfirmProvider";
 import { useToast } from "@/components/toast/ToastProvider";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { useSession } from "@/features/auth/session-context";
+import { LocationMap } from "@/features/location/LocationMap";
 import { ApiError } from "@/services/api/apiClient";
 import {
   activateAdminRestaurant,
@@ -211,7 +212,8 @@ export default function RestaurantDetails() {
           <div className="value" style={{ fontSize: 16 }}>{new Date(restaurant.created_at).toLocaleDateString()}</div>
         </div>
         {/* Maps & Location System Phase 3 — "Admin should be able to
-            inspect the location." Plain text only; a map view is Phase 10. */}
+            inspect the location." Text summary here; the map itself is
+            below (Phase 11). */}
         <div className="stat-card">
           <div className="label">Location</div>
           <div className="value" style={{ fontSize: 13 }}>
@@ -221,6 +223,13 @@ export default function RestaurantDetails() {
           </div>
         </div>
       </div>
+
+      {/* Maps & Location System Phase 11 — Admin Location Visibility:
+          "Restaurant location... where operationally appropriate." Admin
+          only ever inspects this — setting/updating it is the restaurant
+          owner's own Phase 10 tool, not admin's. */}
+      <h2 className="section-title">Location</h2>
+      <LocationMap latitude={Number(restaurant.latitude)} longitude={Number(restaurant.longitude)} />
 
       <h2 className="section-title">Menu</h2>
       {restaurant.menu.length === 0 ? (

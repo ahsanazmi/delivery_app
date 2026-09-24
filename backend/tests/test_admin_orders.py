@@ -52,7 +52,7 @@ def _make_order(
     db, *, customer_name="Cust", restaurant_name="Some Restaurant", rider_id=None,
     status=OrderStatus.PLACED, payment_method="cod", payment_status="pending",
     subtotal=Decimal("100.00"), delivery_fee=Decimal("30.00"), tax=Decimal("5.00"), discount=Decimal("0.00"),
-    order_number=None,
+    order_number=None, postal_code="123456", latitude=None, longitude=None,
 ):
     total = subtotal + delivery_fee + tax - discount
     order = Order(
@@ -61,7 +61,8 @@ def _make_order(
         restaurant_address="Main Road", order_number=order_number or f"ORD-{uuid.uuid4().hex[:20]}",
         status=status, payment_method=payment_method, payment_status=payment_status,
         subtotal=subtotal, delivery_fee=delivery_fee, tax=tax, discount=discount, total=total,
-        address_line="123 Main St", city="Testville", postal_code="123456",
+        address_line="123 Main St", city="Testville", postal_code=postal_code,
+        latitude=latitude, longitude=longitude,
     )
     db.add(order)
     db.commit()
@@ -209,6 +210,75 @@ def test_get_order_detail_shows_no_rider_when_unassigned(client):
 
     response = client.get(f"{ORDERS_URL}/{order.id}", headers=headers)
     assert response.json()["rider_name"] is None
+
+
+def test_get_order_detail_includes_customer_delivery_location(client):
+    """Maps & Location System Phase 11 — admin order detail exposes the
+    customer's delivery location (address + coordinates), which was never
+    surfaced to admins before this phase."""
+    db = _db(client)
+    headers = _admin_headers(db)
+    order = _make_order(db, postal_code="276001", latitude=Decimal("26.0680000"), longitude=Decimal("83.1836000"))
+
+    response = client.get(f"{ORDERS_URL}/{order.id}", headers=headers)
+    body = response.json()
+    assert body["address_line"] == "123 Main St"
+    assert body["city"] == "Testville"
+    assert body["postal_code"] == "276001"
+    assert Decimal(body["latitude"]) == Decimal("26.0680000")
+    assert Decimal(body["longitude"]) == Decimal("83.1836000")
+
+
+def test_order_list_never_exposes_customer_delivery_location(client):
+    """Least-privilege boundary (Phase 11's own instruction) — browsing the
+    order list is a common, frequent admin action that has no need for a
+    customer's precise address, unlike opening one specific order's detail
+    view. This is a regression guard, not just a behavior check."""
+    db = _db(client)
+    headers = _admin_headers(db)
+    _make_order(db, latitude=Decimal("26.0680000"), longitude=Decimal("83.1836000"))
+
+    response = client.get(ORDERS_URL, headers=headers)
+    body = response.json()
+    assert body["items"], "expected at least one order in the list"
+    for field in ("address_line", "city", "postal_code", "latitude", "longitude"):
+        assert field not in body["items"][0]
+
+
+def test_get_order_detail_resolves_its_service_area_zone(client):
+    from app.models.service_area import ServiceArea, ServiceAreaPostalCode
+
+    db = _db(client)
+    headers = _admin_headers(db)
+    zone = ServiceArea(city="Azamgarh", zone_name="Azamgarh City", is_active=True)
+    db.add(zone)
+    db.flush()
+    db.add(ServiceAreaPostalCode(service_area_id=zone.id, postal_code="276001"))
+    db.commit()
+    order = _make_order(db, postal_code="276001")
+
+    response = client.get(f"{ORDERS_URL}/{order.id}", headers=headers)
+    body = response.json()
+    assert body["service_area_zone_name"] == "Azamgarh City"
+    assert body["service_area_city"] == "Azamgarh"
+
+
+def test_get_order_detail_service_area_is_none_outside_any_configured_zone(client):
+    from app.models.service_area import ServiceArea, ServiceAreaPostalCode
+
+    db = _db(client)
+    headers = _admin_headers(db)
+    zone = ServiceArea(city="Azamgarh", zone_name="Azamgarh City", is_active=True)
+    db.add(zone)
+    db.flush()
+    db.add(ServiceAreaPostalCode(service_area_id=zone.id, postal_code="276001"))
+    db.commit()
+    order = _make_order(db, postal_code="999999")
+
+    response = client.get(f"{ORDERS_URL}/{order.id}", headers=headers)
+    body = response.json()
+    assert body["service_area_zone_name"] is None
+    assert body["service_area_city"] is None
 
 
 def test_assign_rider_still_works_at_its_pre_existing_path(client):

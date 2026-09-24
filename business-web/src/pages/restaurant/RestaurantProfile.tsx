@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 
 import { useSession } from "@/features/auth/session-context";
+import { RestaurantLocationMap } from "@/features/restaurant/RestaurantLocationMap";
 import { ApiError } from "@/services/api/apiClient";
 import {
     getRestaurantProfile,
@@ -195,6 +196,14 @@ export default function RestaurantProfilePage() {
             <div className="profile-field-label">Delivery fee</div>
             <div className="profile-field-value">₹{Number(restaurant.delivery_fee).toFixed(2)}</div>
           </div>
+          <div className="profile-field" style={{ gridColumn: "1 / -1" }}>
+            <div className="profile-field-label">Location</div>
+            <RestaurantLocationMap
+              latitude={Number(restaurant.latitude)}
+              longitude={Number(restaurant.longitude)}
+              editable={false}
+            />
+          </div>
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="profile-form">
@@ -254,6 +263,18 @@ export default function RestaurantProfilePage() {
                 required
               />
             </div>
+          </div>
+          <div className="field">
+            <label>Set location on map</label>
+            <RestaurantLocationMap
+              latitude={Number(form.latitude) || Number(restaurant.latitude)}
+              longitude={Number(form.longitude) || Number(restaurant.longitude)}
+              editable
+              onLocationChange={(lat, lng) => {
+                updateField("latitude", String(lat));
+                updateField("longitude", String(lng));
+              }}
+            />
           </div>
           <div className="field-row">
             <div className="field">

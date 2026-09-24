@@ -326,6 +326,23 @@ class AdminOrderDetail(AdminOrderSummary):
     customer_phone: str | None
     restaurant_phone: str | None
     restaurant_address: str | None
+    # Maps & Location System Phase 11 — customer delivery location. Kept
+    # on the Detail schema only, never on AdminOrderSummary/the order
+    # list, so browsing orders never pulls a customer's precise address —
+    # it's only visible once an admin opens a specific order, the same
+    # least-privilege boundary restaurant_address already draws above.
+    address_line: str
+    city: str
+    state: str | None
+    postal_code: str
+    landmark: str | None
+    latitude: Decimal | None
+    longitude: Decimal | None
+    # The configured delivery zone this postal code falls under, if any —
+    # None means either no active zone covers it or no zones have been
+    # configured yet (see get_service_area_for_postal_code).
+    service_area_zone_name: str | None
+    service_area_city: str | None
     # Chronological, oldest first — the actual order timeline.
     items: list[OrderItemRead]
     status_history: list[OrderStatusHistoryRead]

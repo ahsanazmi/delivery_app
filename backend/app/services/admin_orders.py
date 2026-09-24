@@ -9,6 +9,7 @@ from app.models.order import Order, OrderStatus
 from app.models.user import User
 from app.schemas.admin import AdminOrderDetail, AdminOrderListResponse, AdminOrderSummary
 from app.schemas.order import OrderItemRead, OrderStatusHistoryRead
+from app.services.service_areas import get_service_area_for_postal_code
 
 
 def _riders_by_id(db: Session, rider_ids: list[UUID]) -> dict[UUID, User]:
@@ -93,12 +94,22 @@ def get_admin_order_detail(db: Session, order_id: UUID) -> AdminOrderDetail:
 
     summary = _to_summary(order, rider)
     sorted_history = sorted(order.status_history, key=lambda entry: entry.created_at)
+    service_area = get_service_area_for_postal_code(db, order.postal_code)
     return AdminOrderDetail(
         **summary.model_dump(),
         customer_email=order.customer_email,
         customer_phone=order.customer_phone,
         restaurant_phone=order.restaurant_phone,
         restaurant_address=order.restaurant_address,
+        address_line=order.address_line,
+        city=order.city,
+        state=order.state,
+        postal_code=order.postal_code,
+        landmark=order.landmark,
+        latitude=order.latitude,
+        longitude=order.longitude,
+        service_area_zone_name=service_area.zone_name if service_area else None,
+        service_area_city=service_area.city if service_area else None,
         items=[OrderItemRead.model_validate(item) for item in order.items],
         status_history=[OrderStatusHistoryRead.model_validate(entry) for entry in sorted_history],
     )

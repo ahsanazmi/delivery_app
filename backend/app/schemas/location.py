@@ -31,3 +31,12 @@ class PlaceSearchResult(BaseModel):
 
 class PlaceSearchResponse(BaseModel):
     results: list[PlaceSearchResult]
+
+
+class ReverseGeocodeResponse(BaseModel):
+    """Maps & Location System Phase 8 — Reverse Geocoding. `result` is
+    None when nothing was found at the given coordinate (open water, a
+    genuinely unmapped area) — never an error; the customer can still
+    fill the address in by hand either way."""
+
+    result: PlaceSearchResult | None

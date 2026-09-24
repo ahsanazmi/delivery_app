@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useSession } from "@/features/auth/session-context";
 import { useCart } from "@/features/cart/cart-context";
+import { presentDeviceLocationAlert, requestDeviceLocation } from "@/features/location/device-location";
 import { openAndVerifyRazorpayPayment } from "@/features/payments/razorpay-flow";
 import { createAddress, type Address } from "@/services/api/addressesApi";
 import { ApiError } from "@/services/api/apiClient";
@@ -86,30 +87,19 @@ export default function CheckoutScreen() {
   if (!user || !accessToken) return <Redirect href="/login" />;
 
   async function requestCurrentLocation() {
-    if (typeof navigator !== "undefined" && "geolocation" in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setForm((current) => ({
-            ...current,
-            latitude: String(position.coords.latitude),
-            longitude: String(position.coords.longitude),
-          }));
-        },
-        () => {
-          Alert.alert(
-            "Location unavailable",
-            "Please enter your delivery details manually.",
-          );
-        },
-        { enableHighAccuracy: true },
-      );
+    // Maps & Location System Phase 7 — one-shot only, never continuous;
+    // manual entry (every field below) stays fully usable regardless of
+    // what this returns, for every one of the five states it can report.
+    const result = await requestDeviceLocation();
+    if (result.status === "granted") {
+      setForm((current) => ({
+        ...current,
+        latitude: String(result.latitude),
+        longitude: String(result.longitude),
+      }));
       return;
     }
-
-    Alert.alert(
-      "Location access",
-      "Location can be detected on device builds. For now, enter the address manually.",
-    );
+    presentDeviceLocationAlert(result);
   }
 
   async function saveAddress() {

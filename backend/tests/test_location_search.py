@@ -1,10 +1,11 @@
-"""Maps & Location System Phase 9 — Forward Geocoding / Address Search.
+"""Maps & Location System Phase 8/9 — Reverse Geocoding and Forward
+Geocoding / Address Search.
 
 Covers app/services/location_search.py (the Photon proxy + its shared
-throttle) and the GET /api/v1/customer/location/search endpoint.
-Mocks httpx.get directly (same pattern already used for push_notifications.py's
-Expo API call) — never depends on Photon's real public instance being
-reachable to pass.
+throttle) and the GET /api/v1/customer/location/{search,reverse}
+endpoints. Mocks httpx.get directly (same pattern already used for
+push_notifications.py's Expo API call) — never depends on Photon's real
+public instance being reachable to pass.
 """
 
 from decimal import Decimal
@@ -238,3 +239,123 @@ def test_search_endpoint_is_rate_limited_per_ip(client, monkeypatch):
         assert client.get("/api/v1/customer/location/search?q=test").status_code == 200
 
     assert client.get("/api/v1/customer/location/search?q=test").status_code == 429
+
+
+# ---------------------------------------------------------------------------
+# Reverse geocoding (Phase 8)
+# ---------------------------------------------------------------------------
+
+
+def test_reverse_geocode_calls_the_sibling_reverse_path_not_nested_under_api(monkeypatch):
+    """The real, non-obvious fact this phase found: Photon's reverse
+    endpoint lives at the root (/reverse), not under /api/ the way
+    forward search does — confirmed against the live public instance,
+    not guessed. A regression here would silently 404 every reverse
+    lookup."""
+    captured_url = {}
+
+    def fake_get(url, params, timeout):
+        captured_url["url"] = url
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json = MagicMock(return_value={"features": [AZAMGARH_CITY_FEATURE]})
+        return response
+
+    monkeypatch.setattr(location_search.httpx, "get", fake_get)
+
+    location_search.reverse_geocode(Decimal("26.0654351"), Decimal("83.184439"))
+
+    assert captured_url["url"].endswith("/reverse")
+    assert "/api/reverse" not in captured_url["url"]
+
+
+def test_reverse_geocode_maps_a_real_photon_response(monkeypatch):
+    monkeypatch.setattr(location_search.httpx, "get", MagicMock(return_value=_fake_response([AZAMGARH_CITY_FEATURE])))
+
+    result = location_search.reverse_geocode(Decimal("26.0654351"), Decimal("83.184439"))
+
+    assert result is not None
+    assert result.city == "Azamgarh"
+    assert result.postal_code == "276001"
+    assert result.place_id == "N:765060153"
+
+
+def test_reverse_geocode_returns_none_when_nothing_is_found_at_the_coordinate(monkeypatch):
+    """Open water, a genuinely unmapped spot — never an error; the
+    customer can still fill the address in by hand."""
+    monkeypatch.setattr(location_search.httpx, "get", MagicMock(return_value=_fake_response([])))
+
+    result = location_search.reverse_geocode(Decimal("0.0"), Decimal("0.0"))
+
+    assert result is None
+
+
+def test_reverse_geocode_raises_when_the_provider_is_unreachable(monkeypatch):
+    import httpx as real_httpx
+
+    def raise_connect_error(*args, **kwargs):
+        raise real_httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(location_search.httpx, "get", raise_connect_error)
+
+    with pytest.raises(location_search.PlaceSearchUnavailableError):
+        location_search.reverse_geocode(Decimal("26.0654351"), Decimal("83.184439"))
+
+
+def test_reverse_geocode_shares_the_same_throttle_as_forward_search(monkeypatch):
+    """Both hit the same rate-limited Photon instance — a reverse call
+    right after a forward one must still be throttled, not given its
+    own separate, unlimited budget."""
+    sleep_calls = []
+    monkeypatch.setattr(location_search.time, "sleep", lambda seconds: sleep_calls.append(seconds))
+    monkeypatch.setattr(location_search.httpx, "get", MagicMock(return_value=_fake_response([AZAMGARH_CITY_FEATURE])))
+
+    location_search._last_request_at = location_search.time.monotonic()  # a forward search "just happened"
+    location_search.reverse_geocode(Decimal("26.0654351"), Decimal("83.184439"))
+
+    assert len(sleep_calls) == 1
+
+
+def test_reverse_endpoint_returns_a_mapped_result(client, monkeypatch):
+    from app.api.v1.customer import location as location_endpoint
+
+    monkeypatch.setattr(
+        location_endpoint, "reverse_geocode",
+        lambda lat, lon: location_search.PlaceSearchResult(
+            label="Azamgarh, Uttar Pradesh", address_line=None, city="Azamgarh", district=None,
+            state="Uttar Pradesh", postal_code="276001", country="India",
+            latitude=Decimal("26.0654351"), longitude=Decimal("83.184439"),
+            formatted_address="Azamgarh, Uttar Pradesh", place_id="N:765060153",
+        ),
+    )
+
+    response = client.get("/api/v1/customer/location/reverse?lat=26.0654351&lon=83.184439")
+    assert response.status_code == 200
+    assert response.json()["result"]["city"] == "Azamgarh"
+
+
+def test_reverse_endpoint_returns_a_null_result_when_nothing_is_found(client, monkeypatch):
+    from app.api.v1.customer import location as location_endpoint
+
+    monkeypatch.setattr(location_endpoint, "reverse_geocode", lambda lat, lon: None)
+
+    response = client.get("/api/v1/customer/location/reverse?lat=0&lon=0")
+    assert response.status_code == 200
+    assert response.json()["result"] is None
+
+
+def test_reverse_endpoint_returns_503_when_the_provider_is_unavailable(client, monkeypatch):
+    from app.api.v1.customer import location as location_endpoint
+
+    def raise_unavailable(lat, lon):
+        raise location_search.PlaceSearchUnavailableError("Address search is temporarily unavailable.")
+
+    monkeypatch.setattr(location_endpoint, "reverse_geocode", raise_unavailable)
+
+    response = client.get("/api/v1/customer/location/reverse?lat=26&lon=83")
+    assert response.status_code == 503
+
+
+def test_reverse_endpoint_rejects_out_of_range_coordinates(client):
+    response = client.get("/api/v1/customer/location/reverse?lat=999&lon=83")
+    assert response.status_code == 422

@@ -77,6 +77,20 @@ const config: ExpoConfig = {
     // "default"` (not "google") keeps this genuinely Google-Play-
     // Services-free on Android.
     "@maplibre/maplibre-react-native",
+    // Maps & Location System Phase 7 — Device Location Permission.
+    // Foreground-only, deliberately: no
+    // locationAlwaysAndWhenInUsePermission/isAndroidBackgroundLocationEnabled
+    // entries at all (unlike rider-mobile's own expo-location config),
+    // since this app must never continuously track the customer — only
+    // ever a one-shot "where am I right now" for the checkout button
+    // and the map picker's initial centering.
+    [
+      "expo-location",
+      {
+        locationWhenInUsePermission:
+          "Say Hi Chai uses your location to help you set your delivery address faster. You can always enter it manually instead.",
+      },
+    ],
   ],
   experiments: {
     typedRoutes: true,
