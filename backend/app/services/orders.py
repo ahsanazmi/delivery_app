@@ -9,6 +9,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
+from app.core.observability import log_event
 from app.models.cart import Cart
 from app.models.delivery_assignment import AssignmentStatus, DeliveryAssignment
 from app.models.delivery_partner import ApprovalStatus, DeliveryPartner
@@ -18,14 +19,25 @@ from app.models.payment import Payment, PaymentStatus
 from app.models.product import Product
 from app.models.restaurant import Restaurant
 from app.models.user import User, UserRole
+from app.schemas.location import RouteResult
+from app.services import location_service
 from app.services.cart import add_item, clear_cart, get_cart_for_user
 from app.services.checkout import validate_checkout
 from app.services.commissions import compute_effective_commission
 from app.services.coupons import record_coupon_redemption
 from app.services.admin_audit_log import record_admin_audit_log
-from app.services.notifications import notify_admins, notify_order_placed, notify_order_status_change, notify_riders_of_new_delivery
+from app.services.notifications import (
+    notify_admins,
+    notify_order_placed,
+    notify_order_status_change,
+    notify_restaurant_delivery_exception,
+    notify_restaurant_new_order,
+    notify_rider_new_assignment,
+    notify_rider_reassigned_away,
+    notify_riders_of_new_delivery,
+)
 from app.services.restaurant_dashboard import READY_STATUSES
-from app.services.tracking_snapshot import build_tracking_snapshot, to_tracking_response
+from app.services.tracking_snapshot import TERMINAL_ORDER_STATUSES, build_tracking_snapshot, to_tracking_response
 from app.ws.manager import manager
 
 logger = logging.getLogger(__name__)
@@ -142,9 +154,18 @@ def _cancel_delivery_assignment(db: Session, order: Order) -> None:
 
 def _broadcast_tracking_update(db: Session, order: Order) -> None:
     """Push a fresh tracking snapshot to any customer currently watching this
-    order's WebSocket room. A no-op if nobody's connected."""
+    order's WebSocket room. A no-op if nobody's connected.
+
+    Live Rider Tracking Phase 28/31 — a terminal status is the *last*
+    thing this order will ever broadcast, so the room is proactively
+    closed right after — a lingering connection that ignores its own
+    "this order is done" message never stays registered waiting for a
+    broadcast that will now never come."""
     snapshot = build_tracking_snapshot(db, order)
     manager.broadcast(order.id, to_tracking_response(snapshot).model_dump(mode="json"))
+    if order.status in TERMINAL_ORDER_STATUSES:
+        log_event(logger, "tracking_stopped", order_id=order.id, reason=order.status.value)
+        manager.close_room(order.id)
 
 
 def transition_order_status(db: Session, order: Order, new_status: OrderStatus, note: str | None = None) -> Order:
@@ -212,7 +233,21 @@ def transition_order_status(db: Session, order: Order, new_status: OrderStatus, 
         )
     db.commit()
     db.refresh(order)
-    _broadcast_tracking_update(db, order)
+    # Live Rider Tracking Phase 32 — Offline/Failure Handling. Tracking is
+    # explicitly auxiliary: the status change above is already committed,
+    # but transition_order_status is the single choke point every caller
+    # (customer cancel, rider pickup/deliver, admin override) goes
+    # through, and several of those callers (e.g. complete_delivery) run
+    # their OWN further side effects — assignment status, rider earnings —
+    # immediately after this call returns. An unhandled failure here (a
+    # routing provider returning something unexpected, a WS internals
+    # bug) must never abort those still-pending steps and leave the order
+    # marked DELIVERED while its assignment/earnings never got recorded.
+    try:
+        _broadcast_tracking_update(db, order)
+    except Exception as exc:
+        log_event(logger, "tracking_error", order_id=order.id, stage="status_broadcast", reason=type(exc).__name__)
+        logger.warning("Tracking broadcast failed for order %s; order status change already committed", order.id, exc_info=True)
     return order
 
 
@@ -317,6 +352,7 @@ def create_order(
             landmark=address.landmark,
             latitude=address.latitude,
             longitude=address.longitude,
+            place_id=address.place_id,
             delivery_instructions=delivery_instructions,
             is_paid=False,
         )
@@ -337,6 +373,7 @@ def create_order(
 
         _add_status_history(db, order, OrderStatus.PLACED, "Order placed")
         notify_order_placed(db, order)
+        notify_restaurant_new_order(db, order)
         if validation.get("coupon_id"):
             record_coupon_redemption(db, validation["coupon_id"], user.id, order.id)
         clear_cart(db, cart)
@@ -414,6 +451,11 @@ def assign_rider_to_order(db: Session, order: Order, rider_id: UUID) -> Order:
         transition_order_status(db, order, OrderStatus.RIDER_ASSIGNED, f"Assigned to rider {rider.name}")
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    # Notifications & Communication System Phase 20 — "new assignment."
+    # Only this admin-direct path needs telling; the self-service
+    # accept_delivery flow never calls this function at all.
+    notify_rider_new_assignment(db, rider, order)
+    db.commit()
     return order
 
 
@@ -543,6 +585,7 @@ def admin_reassign_rider(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Order is already assigned to this rider")
 
     previous_rider_id = order.rider_id
+    previous_rider = db.get(User, previous_rider_id)
     record_admin_audit_log(
         db,
         admin_id=admin.id,
@@ -557,6 +600,9 @@ def admin_reassign_rider(
     _cancel_delivery_assignment(db, order)
     order.rider_id = new_rider.id
     _add_status_history(db, order, order.status, f"Reassigned by admin from rider {previous_rider_id} to {new_rider.name}: {reason}")
+    if previous_rider is not None:
+        notify_rider_reassigned_away(db, previous_rider, order)
+    notify_restaurant_delivery_exception(db, order)
     db.commit()
     db.refresh(order)
     return order
@@ -704,6 +750,19 @@ def list_restaurant_orders(
         statement = statement.where(Order.status.in_(statuses))
     statement = statement.order_by(Order.created_at.desc()).offset(offset).limit(limit)
     return list(db.scalars(statement))
+
+
+def get_order_route_info(order: Order, restaurant: Restaurant) -> "RouteResult | None":
+    """Maps & Location System Phase 20 — Restaurant → Customer Route. The
+    order's own immutable delivery-location snapshot (Phase 12) against
+    the restaurant's current location, via LocationService.route() (real
+    road distance/duration, not a straight-line estimate — this answers
+    "how far is this delivery to actually drive," not just "how far away
+    is it as the crow flies"). None when either side has no pinned
+    coordinates — never required, only shown where available."""
+    if order.latitude is None or order.longitude is None:
+        return None
+    return location_service.route(restaurant.latitude, restaurant.longitude, order.latitude, order.longitude)
 
 
 def get_restaurant_order_or_404(db: Session, restaurant_id: UUID, order_id: UUID) -> Order:

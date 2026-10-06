@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.models.payment import Payment, PaymentStatus
 from app.models.refund import Refund, RefundStatus
+from app.services.notifications import notify_customer_refund_completed, notify_customer_refund_initiated
 from app.services.payment.exceptions import RefundError
 from app.services.payment.provider import PaymentProvider
 
@@ -182,6 +183,20 @@ def create_refund(
     # where it already was; recompute_payment_refund_status() is a no-op
     # unless this refund just became COMPLETED.
     recompute_payment_refund_status(db, payment)
+
+    # Notifications & Communication System Phase 8 — Event-Driven
+    # Notification Hooks. A customer whose refund lands directly on
+    # COMPLETED here (COD, or an instant online "processed" result) gets
+    # exactly one notification; a customer whose refund is still
+    # PROCESSING gets "initiated" now and "completed" later, from
+    # webhook_service.py's _handle_refund_processed once Razorpay's own
+    # webhook confirms it. FAILED is deliberately not notified here — see
+    # this phase's own completion report for why.
+    if refund.status == RefundStatus.COMPLETED:
+        notify_customer_refund_completed(db, refund, payment)
+    elif refund.status == RefundStatus.PROCESSING:
+        notify_customer_refund_initiated(db, refund, payment)
+
     db.commit()
     db.refresh(refund)
     return refund

@@ -15,6 +15,7 @@ class Restaurant(Base):
         CheckConstraint("minimum_order >= 0", name="ck_restaurants_minimum_order_nonnegative"),
         CheckConstraint("delivery_fee >= 0", name="ck_restaurants_delivery_fee_nonnegative"),
         CheckConstraint("average_rating >= 0 AND average_rating <= 5", name="ck_restaurants_average_rating_range"),
+        CheckConstraint("total_ratings >= 0", name="ck_restaurants_total_ratings_nonnegative"),
         CheckConstraint("latitude >= -90 AND latitude <= 90", name="ck_restaurants_latitude_range"),
         CheckConstraint("longitude >= -180 AND longitude <= 180", name="ck_restaurants_longitude_range"),
         Index("ix_restaurants_active_open", "is_active", "is_open"),
@@ -45,6 +46,10 @@ class Restaurant(Base):
     delivery_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
     delivery_time_minutes: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
     average_rating: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=Decimal("0.00"), nullable=False)
+    # Reviews & Ratings Phase 6 — a plain count alongside average_rating, kept
+    # in sync by the same synchronous aggregation recompute (Phase 25-27) so
+    # "N ratings" can be displayed without a COUNT(*) over reviews on every read.
+    total_ratings: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_open: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Admin Portal Phase 4 — a restaurant's standing with the platform,

@@ -135,7 +135,7 @@ def test_two_cod_collections_then_a_partial_settlement_allocates_fifo(engine):
             db.commit()
 
         address = client.post(
-            "/api/v1/customer/addresses", headers=customer_headers,
+            "/api/v1/addresses", headers=customer_headers,
             json={
                 "label": "Home", "recipient_name": "Customer P30", "phone": "9500000010",
                 "address_line": "1 MG Road", "city": "Bengaluru", "state": "Karnataka", "postal_code": "560001",
@@ -256,7 +256,7 @@ def test_cod_collection_ledger_row_is_never_duplicated_on_idempotent_retry(engin
             db.commit()
 
         address = client.post(
-            "/api/v1/customer/addresses", headers=customer_headers,
+            "/api/v1/addresses", headers=customer_headers,
             json={
                 "label": "Home", "recipient_name": "Customer P30B", "phone": "9500000110",
                 "address_line": "1 MG Road", "city": "Bengaluru", "state": "Karnataka", "postal_code": "560001",

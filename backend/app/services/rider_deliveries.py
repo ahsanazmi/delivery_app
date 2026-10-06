@@ -1,7 +1,6 @@
 import logging
 from datetime import UTC, datetime
 from decimal import Decimal
-from math import atan2, cos, radians, sin, sqrt
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -18,7 +17,8 @@ from app.models.restaurant import Restaurant
 from app.models.rider_settlement import RiderSettlement, SettlementType
 from app.models.user import User
 from app.schemas.rider_delivery import AvailableDeliveryRead, CodCollectionRead, RiderDeliveryDetailRead
-from app.services.notifications import notify_admins
+from app.services.location_service import distance_km as _distance_km
+from app.services.notifications import notify_admins, notify_customer_cod_collected, notify_rider_cod_settlement_due
 from app.services.orders import transition_order_status
 from app.services.rider_earnings import record_delivery_fee_earning
 from app.services.rider_dashboard import RIDER_ACTIVE_STATUSES
@@ -33,8 +33,6 @@ logger = logging.getLogger(__name__)
 # There is no de-duplication — an admin may see repeated alerts for the same
 # rider while they remain over the threshold.
 COD_SETTLEMENT_DUE_THRESHOLD = Decimal("1000.00")
-
-_EARTH_RADIUS_KM = 6371.0
 
 # Performance Baseline (Phase 25) — list_available_deliveries had no cap at
 # all: every unassigned READY_FOR_PICKUP order platform-wide, regardless of
@@ -105,14 +103,6 @@ def _transition_assignment_status(
         )
     if assignment is not None:
         assignment.status = new_status
-
-
-def _distance_km(lat1, lon1, lat2, lon2) -> float:
-    lat1, lon1, lat2, lon2 = (radians(float(v)) for v in (lat1, lon1, lat2, lon2))
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
-    return round(_EARTH_RADIUS_KM * 2 * atan2(sqrt(a), sqrt(1 - a)), 2)
 
 
 def list_available_deliveries(db: Session, rider: User) -> list[AvailableDeliveryRead]:
@@ -561,6 +551,22 @@ def collect_cod_payment(db: Session, rider: User, order_id: UUID) -> CodCollecti
         # Logging & Error Handling (Phase 26) — a genuine double-collection
         # attempt (not the safe same-rider retry handled above).
         logger.warning("COD issue: order %s cash already collected, rejected duplicate collection by rider %s", order.id, rider.id)
+        # COD Notifications (Phase 22) — "reconciliation issue." A rider's
+        # own app state disagreeing with the platform's own record of
+        # what's already been collected (by a different rider, or via the
+        # admin settlement fallback with no rider attribution) is exactly
+        # the kind of anomaly SYSTEM_ALERT already exists for (see
+        # Payment Notifications Phase 13's own refund-failure alert) —
+        # worth a human's attention regardless of the root cause, not a
+        # second new NotificationType for the same "needs manual review"
+        # situation.
+        notify_admins(
+            db, NotificationType.SYSTEM_ALERT, "COD reconciliation issue",
+            f"Rider {rider.name} attempted to collect cash for order {order.order_number}, "
+            "but it was already recorded as collected by someone else.",
+            order_id=order.id,
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cash has already been collected for this order.")
 
     payment = db.scalar(select(Payment).where(Payment.order_id == order.id))
@@ -599,6 +605,11 @@ def collect_cod_payment(db: Session, rider: User, order_id: UUID) -> CodCollecti
         amount=order.total, collected_at=collected_at,
     ))
 
+    # COD Notifications (Phase 22) — "COD collected," the cash-payment
+    # counterpart to notify_customer_payment_success, which an online-
+    # paying customer already gets the moment their payment verifies.
+    notify_customer_cod_collected(db, payment)
+
     # Admin Portal Phase 20 — "COD settlement due". Mirrors admin_cod.py's
     # own collected-minus-remitted formula inline rather than through a
     # shared cross-module helper, matching this project's already-accepted
@@ -618,6 +629,12 @@ def collect_cod_payment(db: Session, rider: User, order_id: UUID) -> CodCollecti
             db, NotificationType.COD_SETTLEMENT_DUE, "COD settlement due",
             f"{rider.name} has an outstanding COD balance of {collected - remitted:.2f} awaiting settlement.",
         )
+        # Notifications & Communication System Phase 11 — "COD-related
+        # operational alerts" for the rider notification center
+        # specifically, not just the admin one above. Same threshold
+        # check, same underlying event, addressed to the rider who
+        # actually needs to go remit the balance.
+        notify_rider_cod_settlement_due(db, rider, collected - remitted)
 
     db.commit()
     db.refresh(payment)

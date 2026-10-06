@@ -46,12 +46,41 @@ class OrderTrackingConnectionManager:
             except Exception:
                 self.disconnect(order_id, websocket)
 
+    def has_listeners(self, order_id: UUID) -> bool:
+        """Live Rider Tracking Phase 35 — Performance/Scalability. A cheap
+        O(1) check callers can use to skip building an expensive snapshot
+        (a DB read plus a possible live-ETA/OSRM call) when nobody is
+        actually connected to watch it — see rider_location.py's own use
+        of this, on the high-frequency GPS-driven broadcast path."""
+        return order_id in self._connections
+
     def broadcast(self, order_id: UUID, payload: dict) -> None:
         """Safe to call from synchronous service-layer code running off the
         event loop thread (FastAPI runs sync `def` routes in a threadpool)."""
         if self._loop is None or order_id not in self._connections:
             return
         future = asyncio.run_coroutine_threadsafe(self._send_to_all(order_id, payload), self._loop)
+        self._pending.add(future)
+        future.add_done_callback(self._pending.discard)
+
+    async def _close_all(self, order_id: UUID) -> None:
+        for websocket in list(self._connections.get(order_id, ())):
+            try:
+                await websocket.close(code=1000)
+            except Exception:
+                pass
+        self._connections.pop(order_id, None)
+
+    def close_room(self, order_id: UUID) -> None:
+        """Live Rider Tracking Phase 28/31 — proactively closes every
+        connection currently subscribed to this order, rather than
+        leaving that entirely to a well-behaved client eventually closing
+        its own socket after receiving a terminal status. This class has
+        no opinion on *why* a room should close (no order/business logic
+        here, per Phase 13's own separation) — the caller decides when."""
+        if self._loop is None or order_id not in self._connections:
+            return
+        future = asyncio.run_coroutine_threadsafe(self._close_all(order_id), self._loop)
         self._pending.add(future)
         future.add_done_callback(self._pending.discard)
 

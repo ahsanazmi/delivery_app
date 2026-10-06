@@ -286,7 +286,12 @@ def test_notifications_list_is_capped(client):
     db_gen = client.app.dependency_overrides[get_db]()
     db = next(db_gen)
     for i in range(_MAX_NOTIFICATIONS_RETURNED + 10):
-        db.add(Notification(user_id=_UUID(rider_id), type=NotificationType.SYSTEM, title=f"Update {i}", body="x"))
+        db.add(
+            Notification(
+                user_id=_UUID(rider_id), role=UserRole.RIDER, type=NotificationType.SYSTEM,
+                title=f"Update {i}", body="x",
+            )
+        )
     db.commit()
 
     results = list_notifications(db, _UUID(rider_id))

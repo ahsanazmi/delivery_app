@@ -4,9 +4,28 @@ import { ActivityIndicator, Linking, Pressable, ScrollView, StyleSheet, Text, Vi
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useSession } from "@/features/auth/session-context";
+import { distanceKm } from "@/features/tracking/geo";
 import { RiderMap } from "@/features/tracking/RiderMap";
 import { useOrderTracking } from "@/features/tracking/use-order-tracking";
 import type { OrderStatus } from "@/services/api/ordersApi";
+import { deriveEtaDisplayState, type EtaDisplayState, type RiderLocationState } from "@/services/api/trackingApi";
+
+const ETA_STATE_LABEL: Record<EtaDisplayState, string> = {
+  calculating: "Calculating…",
+  updated: "Updated recently",
+  updating: "Updating…",
+  unavailable: "Temporarily unavailable",
+};
+
+// Live Rider Tracking Phase 19 — Stale Location Detection. A clear,
+// always-visible badge so a customer never mistakes an old position for
+// a current one — the marker/distance text alone (which can't change
+// just because nothing new arrived) isn't enough on its own.
+const STATE_LABEL: Record<RiderLocationState, string> = {
+  live: "Live",
+  stale: "Delayed",
+  offline: "Unavailable",
+};
 
 const TIMELINE_STEPS: { status: OrderStatus; label: string }[] = [
   { status: "placed", label: "Order Placed" },
@@ -18,18 +37,6 @@ const TIMELINE_STEPS: { status: OrderStatus; label: string }[] = [
   { status: "out_for_delivery", label: "Out for Delivery" },
   { status: "delivered", label: "Delivered" },
 ];
-
-const EARTH_RADIUS_KM = 6371;
-
-function distanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 function secondsAgo(iso: string): number {
   return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
@@ -60,12 +67,14 @@ export default function TrackOrderScreen() {
   if (!id) return <Redirect href="/orders" />;
 
   const isCancelledOrRejected = tracking?.order_status === "cancelled" || tracking?.order_status === "rejected";
+  const isDelivered = tracking?.order_status === "delivered";
   const reachedStatuses = new Set(tracking?.status_history.map((entry) => entry.status) ?? []);
   const riderLocation = tracking?.rider_location ?? null;
   const distance =
     riderLocation && tracking?.delivery_latitude != null && tracking?.delivery_longitude != null
       ? distanceKm(riderLocation.latitude, riderLocation.longitude, tracking.delivery_latitude, tracking.delivery_longitude)
       : null;
+  const etaState = tracking ? deriveEtaDisplayState(tracking) : "calculating";
 
   const openInMaps = () => {
     if (!riderLocation) return;
@@ -114,15 +123,37 @@ export default function TrackOrderScreen() {
             </View>
           ) : (
             <>
-              {tracking.estimated_delivery_at && (
+              {/* Live Rider Tracking Phase 26 — once delivered, live-only
+                  content (ETA, current rider position) is retired rather
+                  than left showing a frozen, now-meaningless last value. */}
+              {isDelivered && (
+                <View style={styles.deliveredBanner}>
+                  <Text style={styles.deliveredText}>Delivered</Text>
+                </View>
+              )}
+
+              {tracking.estimated_delivery_at && !isDelivered && (
                 <View style={styles.etaCard}>
-                  <Text style={styles.etaLabel}>Estimated delivery</Text>
-                  <Text style={styles.etaValue}>
-                    {new Date(tracking.estimated_delivery_at).toLocaleTimeString([], {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </Text>
+                  <View style={styles.etaHeaderRow}>
+                    <Text style={styles.etaLabel}>Estimated delivery</Text>
+                    <Text style={styles.etaStateText}>{ETA_STATE_LABEL[etaState]}</Text>
+                  </View>
+                  {/* Live Rider Tracking Phase 23 — never present a stale
+                      ETA as current: once the rider's location itself is
+                      unavailable, show a plain explanation instead of a
+                      time that can't be trusted right now. */}
+                  {etaState === "unavailable" ? (
+                    <Text style={styles.etaUnavailableText}>
+                      We'll show a new estimate once the rider's location updates.
+                    </Text>
+                  ) : (
+                    <Text style={styles.etaValue}>
+                      {new Date(tracking.estimated_delivery_at).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </Text>
+                  )}
                 </View>
               )}
 
@@ -160,6 +191,22 @@ export default function TrackOrderScreen() {
               </View>
 
               <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Route</Text>
+                {tracking.restaurant_name && (
+                  <View style={styles.routeRow}>
+                    <View style={[styles.routeDot, styles.routeDotRestaurant]} />
+                    <Text style={styles.meta}>{tracking.restaurant_name}</Text>
+                  </View>
+                )}
+                {tracking.delivery_address_line && (
+                  <View style={styles.routeRow}>
+                    <View style={[styles.routeDot, styles.routeDotDestination]} />
+                    <Text style={styles.meta}>{tracking.delivery_address_line}</Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.card}>
                 <Text style={styles.sectionTitle}>Delivery partner</Text>
                 {tracking.rider ? (
                   <>
@@ -175,6 +222,12 @@ export default function TrackOrderScreen() {
                 <View style={styles.mapCard}>
                   <RiderMap
                     riderLocation={riderLocation}
+                    riderLocationState={riderLocation.state}
+                    restaurantLocation={
+                      tracking.restaurant_latitude != null && tracking.restaurant_longitude != null
+                        ? { latitude: tracking.restaurant_latitude, longitude: tracking.restaurant_longitude }
+                        : null
+                    }
                     deliveryLocation={
                       tracking.delivery_latitude != null && tracking.delivery_longitude != null
                         ? { latitude: tracking.delivery_latitude, longitude: tracking.delivery_longitude }
@@ -182,9 +235,20 @@ export default function TrackOrderScreen() {
                     }
                   />
                   <View style={styles.mapFooter}>
-                    <Text style={styles.mapFooterTitle}>
-                      {distance !== null ? `${distance.toFixed(1)} km away` : "Rider location live"}
-                    </Text>
+                    <View style={styles.mapFooterHeaderRow}>
+                      <Text style={styles.mapFooterTitle}>
+                        {/* Live Rider Tracking Phase 19 — never present a
+                            stale/offline position as if it were current. */}
+                        {riderLocation.state === "offline"
+                          ? "Location unavailable"
+                          : distance !== null
+                            ? `${distance.toFixed(1)} km away`
+                            : "Rider location live"}
+                      </Text>
+                      <View style={[styles.stateBadge, STATE_BADGE_STYLE[riderLocation.state]]}>
+                        <Text style={styles.stateBadgeText}>{STATE_LABEL[riderLocation.state]}</Text>
+                      </View>
+                    </View>
                     <Text style={styles.mapFooterMeta}>Updated {relativeTimeLabel(riderLocation.updated_at)}</Text>
                     <Pressable onPress={openInMaps}>
                       <Text style={styles.mapAction}>Open in Google Maps</Text>
@@ -193,11 +257,13 @@ export default function TrackOrderScreen() {
                 </View>
               ) : (
                 <View style={styles.mapPlaceholder}>
-                  <Text style={styles.mapEmoji}>🗺️</Text>
+                  <Text style={styles.mapEmoji}>{isDelivered ? "✅" : "🗺️"}</Text>
                   <Text style={styles.mapText}>
-                    {tracking.assignment_status === "assigned"
-                      ? "Waiting for the rider's location…"
-                      : "Rider location will appear once one is assigned."}
+                    {isDelivered
+                      ? "This order has been delivered."
+                      : tracking.assignment_status === "assigned"
+                        ? "Waiting for the rider's location…"
+                        : "Rider location will appear once one is assigned."}
                   </Text>
                 </View>
               )}
@@ -258,13 +324,22 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   cancelledText: { color: "#B42318", fontWeight: "800" },
+  deliveredBanner: {
+    backgroundColor: "#E6F4EA",
+    borderRadius: 14,
+    padding: 16,
+  },
+  deliveredText: { color: "#1D8E4E", fontWeight: "800" },
   etaCard: {
     backgroundColor: "#FFF3EE",
     borderRadius: 14,
     padding: 16,
   },
+  etaHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   etaLabel: { color: "#8A4B12", fontSize: 12, fontWeight: "700" },
+  etaStateText: { color: "#8A4B12", fontSize: 11, fontWeight: "700" },
   etaValue: { color: "#241913", fontSize: 22, fontWeight: "800", marginTop: 4 },
+  etaUnavailableText: { color: "#6D625D", fontSize: 13, marginTop: 6, lineHeight: 18 },
   timelineCard: {
     backgroundColor: "#fff",
     borderRadius: 18,
@@ -307,6 +382,10 @@ const styles = StyleSheet.create({
   sectionTitle: { color: "#241913", fontWeight: "800", fontSize: 15, marginBottom: 8 },
   riderName: { color: "#241913", fontWeight: "700" },
   meta: { color: "#6D625D", marginTop: 4 },
+  routeRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
+  routeDot: { width: 8, height: 8, borderRadius: 4 },
+  routeDotRestaurant: { backgroundColor: "#1D4ED8" },
+  routeDotDestination: { backgroundColor: "#FF5A1F" },
   mapPlaceholder: {
     backgroundColor: "#F3ECE6",
     borderRadius: 18,
@@ -325,7 +404,19 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 18,
   },
-  mapFooterTitle: { color: "#fff", fontWeight: "800", fontSize: 16 },
+  mapFooterHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  mapFooterTitle: { color: "#fff", fontWeight: "800", fontSize: 16, flexShrink: 1 },
   mapFooterMeta: { color: "#C8B8B0", fontSize: 12, marginTop: 4 },
   mapAction: { color: "#FFD9C2", fontWeight: "800", fontSize: 13, marginTop: 10 },
+  stateBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  stateBadgeLive: { backgroundColor: "#1D8E4E" },
+  stateBadgeStale: { backgroundColor: "#B7791F" },
+  stateBadgeOffline: { backgroundColor: "#B42318" },
+  stateBadgeText: { color: "#fff", fontWeight: "800", fontSize: 11 },
 });
+
+const STATE_BADGE_STYLE: Record<RiderLocationState, object> = {
+  live: styles.stateBadgeLive,
+  stale: styles.stateBadgeStale,
+  offline: styles.stateBadgeOffline,
+};

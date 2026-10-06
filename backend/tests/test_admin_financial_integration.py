@@ -122,7 +122,7 @@ def test_full_financial_pipeline_no_double_counting_and_all_decimal(engine):
 
         # ---- CUSTOMER ORDER ----
         address = client.post(
-            "/api/v1/customer/addresses", headers=customer_headers,
+            "/api/v1/addresses", headers=customer_headers,
             json={
                 "label": "Home", "recipient_name": "Customer P28", "phone": "9400000010",
                 "address_line": "1 MG Road", "city": "Bengaluru", "state": "Karnataka", "postal_code": "560001",

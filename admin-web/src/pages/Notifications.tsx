@@ -81,7 +81,7 @@ export default function Notifications() {
             Notifications
           </h2>
           <p className="muted" style={{ margin: "4px 0 0" }}>
-            Operational alerts — new restaurants, riders, submitted documents, order issues, payment failures and COD settlements due.
+            Operational alerts — new restaurants, riders, submitted documents, order issues, payment/refund failures, COD settlements due and system alerts.
           </p>
         </div>
         <button className="btn-secondary" onClick={handleMarkAllRead} disabled={markingAll || unreadCount === 0}>

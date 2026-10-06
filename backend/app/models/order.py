@@ -100,6 +100,13 @@ class Order(Base):
     landmark: Mapped[str | None] = mapped_column(String(200), nullable=True)
     latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
     longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 7), nullable=True)
+    # Maps & Location System Phase 12 — Order Delivery Address Snapshot.
+    # Copied once, at order-creation time, from the customer's Address row
+    # (see create_order), exactly like address_line/city/latitude/longitude
+    # above — never re-derived from Address afterward, so editing a saved
+    # address can never change an existing order's delivery location, even
+    # though Order carries no address_id/foreign key back to Address at all.
+    place_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     delivery_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     cancelled_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     payment_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)

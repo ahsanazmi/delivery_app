@@ -1,11 +1,13 @@
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert, Button, Linking, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { ErrorState } from "@/components/ErrorState";
 import { SkeletonBlock, SkeletonCard } from "@/components/SkeletonBlock";
 import { StatusBadge } from "@/components/StatusBadge";
 import { useThemeColors } from "@/hooks/use-theme-colors";
+import { DeliveryMap, type LatLng } from "@/features/location/DeliveryMap";
+import { requestDeviceLocation } from "@/features/location/device-location";
 import { useAuthStore } from "@/store/authStore";
 import { useLocationTrackingStore } from "@/store/locationTrackingStore";
 import {
@@ -20,6 +22,11 @@ import {
 import { ACTIVE_DELIVERY_STATUSES } from "@/services/api/riderApi";
 import { navigateTo } from "@/services/navigation";
 import { rupees } from "@/utils/currency";
+
+// Live Rider Tracking Phase 25 — reported accuracy worse than this is
+// shown as "Weak GPS signal," a plain, non-technical warning rather than
+// the raw meter value.
+const WEAK_GPS_ACCURACY_METERS = 50;
 
 function toCoordinates(latitude: number | string | null, longitude: number | string | null) {
   if (latitude === null || longitude === null) return null;
@@ -72,6 +79,30 @@ export default function RiderDeliveryDetailScreen() {
   // (driven by ONLINE-or-active-delivery, not just this screen's delivery
   // status) — this just reads its shared status to render the banner below.
   const sharingState = useLocationTrackingStore((state) => state.state);
+  const lastAccuracy = useLocationTrackingStore((state) => state.lastAccuracy);
+  const networkStatus = useLocationTrackingStore((state) => state.networkStatus);
+
+  // Maps & Location System Phase 21/22 — Rider Map Foundation / Rider
+  // Location Permission. A one-shot, foreground-only fetch purely for
+  // this map's own "you are here" pin — separate from (and never sent
+  // to) the continuous background reporter above. Silently omits the
+  // pin (no popup) when not granted, matching the map picker's own
+  // non-intrusive pattern elsewhere on this platform — a rider without
+  // location permission still sees the restaurant/customer pins fine.
+  const [currentLocation, setCurrentLocation] = useState<LatLng | null>(null);
+  useEffect(() => {
+    if (!isActivelyDelivering) return;
+    let cancelled = false;
+    requestDeviceLocation().then((result) => {
+      if (cancelled) return;
+      if (result.status === "granted") {
+        setCurrentLocation({ latitude: result.latitude, longitude: result.longitude });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isActivelyDelivering, id]);
 
   async function handleMarkArrived() {
     if (!accessToken || !id) return;
@@ -214,12 +245,36 @@ export default function RiderDeliveryDetailScreen() {
       <Text style={[styles.orderNumber, { color: colors.text }]}>{delivery.order_number}</Text>
       <StatusBadge status={delivery.status} />
       {isActivelyDelivering && (
-        <Text style={[styles.muted, { color: colors.muted }]}>
-          {sharingState === "sharing" && "📍 Sharing your location with the customer"}
-          {sharingState === "requesting-permission" && "Requesting location permission…"}
-          {sharingState === "denied" && "⚠️ Location permission denied — customer won't see your position"}
-          {sharingState === "error" && "⚠️ Couldn't get your location right now"}
-        </Text>
+        <View>
+          {/* Live Rider Tracking Phase 25 — Rider Delivery Screen. Plain,
+              non-technical states only ("Weak GPS signal", not "accuracy:
+              340m"); accuracy/network are used to pick the right message,
+              never shown as raw numbers. */}
+          <Text style={[styles.muted, { color: colors.muted }]}>
+            {sharingState === "tracking" && "📍 Location active — sharing with the customer"}
+            {(sharingState === "starting" || sharingState === "requesting-permission") && "Waiting for GPS…"}
+            {sharingState === "permission-denied" && "⚠️ Location unavailable — permission denied"}
+            {(sharingState === "stopped" || sharingState === "idle") && "⚠️ Location unavailable"}
+            {sharingState === "reconnecting" && "⚠️ Reconnecting…"}
+            {sharingState === "error" && "⚠️ Location unavailable"}
+          </Text>
+          {sharingState === "tracking" && lastAccuracy != null && lastAccuracy > WEAK_GPS_ACCURACY_METERS && (
+            <Text style={[styles.mutedSmall, { color: colors.muted }]}>Weak GPS signal — position may be imprecise</Text>
+          )}
+          {networkStatus === "offline" && (
+            <Text style={[styles.mutedSmall, { color: colors.muted }]}>No internet connection</Text>
+          )}
+        </View>
+      )}
+
+      {isActivelyDelivering && (
+        <View style={styles.mapCard}>
+          <DeliveryMap
+            currentLocation={currentLocation}
+            restaurantLocation={toCoordinates(delivery.restaurant_latitude, delivery.restaurant_longitude)}
+            customerLocation={toCoordinates(delivery.delivery_latitude, delivery.delivery_longitude)}
+          />
+        </View>
       )}
 
       <Text style={[styles.label, { color: colors.text }]}>Pickup restaurant</Text>
@@ -329,10 +384,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   container: { padding: 24, gap: 6, flexGrow: 1 },
+  mapCard: { height: 220, borderRadius: 14, overflow: "hidden", marginTop: 8 },
   title: { fontSize: 28, fontWeight: "700" },
   orderNumber: { fontSize: 18, fontWeight: "700" },
   label: { fontSize: 16, fontWeight: "700", marginTop: 12 },
   muted: {},
+  mutedSmall: { fontSize: 12, marginTop: 2 },
   codBox: {
     marginTop: 8,
     padding: 12,

@@ -16,6 +16,10 @@ export type CheckoutResponse = {
   removed_items: string[];
   coupon_code: string | null;
   coupon_message: string | null;
+  // Maps & Location System Phase 19 — straight-line, server-computed;
+  // null whenever either the selected address or the restaurant has no
+  // pinned coordinates.
+  distance_km: number | null;
   issues: string[];
 };
 
@@ -33,6 +37,7 @@ export type OrderValidateResponse = {
   total_items: number;
   removed_items: string[];
   coupon_code: string | null;
+  distance_km: number | null;
 };
 
 export function getCheckout(accessToken: string) {

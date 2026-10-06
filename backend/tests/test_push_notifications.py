@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -95,7 +96,7 @@ def test_send_push_no_tokens_is_a_silent_noop(db, monkeypatch):
         called = True
         return FakeResponse([])
 
-    monkeypatch.setattr("app.services.push_notifications.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.push.expo_provider.httpx.post", fake_post)
     send_push_to_user(db, customer.id, "Title", "Body")
     assert called is False  # no tokens registered, so no network call at all
 
@@ -111,7 +112,7 @@ def test_send_push_calls_expo_with_registered_tokens(db, monkeypatch):
         captured["messages"] = json
         return FakeResponse([{"status": "ok"}])
 
-    monkeypatch.setattr("app.services.push_notifications.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.push.expo_provider.httpx.post", fake_post)
     send_push_to_user(db, customer.id, "Order confirmed", "Your order is confirmed", data={"type": "order_status"})
 
     assert captured["url"] == "https://exp.host/--/api/v2/push/send"
@@ -126,19 +127,46 @@ def test_send_push_calls_expo_with_registered_tokens(db, monkeypatch):
     ]
 
 
-def test_stale_token_is_removed_on_device_not_registered(db, monkeypatch):
+def test_stale_token_is_deactivated_not_deleted_on_device_not_registered(db, monkeypatch):
+    """Invalid Push Token Cleanup (Phase 32) — "mark token inactive,"
+    "do not delete useful device records unnecessarily." Supersedes this
+    test's own earlier Phase 14 assertion that the row was deleted."""
     customer = _customer(db)
     upsert_push_token(db, customer.id, "ExponentPushToken[dead]")
 
     def fake_post(*args, **kwargs):
         return FakeResponse([{"status": "error", "details": {"error": "DeviceNotRegistered"}}])
 
-    monkeypatch.setattr("app.services.push_notifications.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.push.expo_provider.httpx.post", fake_post)
     send_push_to_user(db, customer.id, "Title", "Body")
     db.commit()
 
     remaining = db.query(PushToken).filter(PushToken.user_id == customer.id).all()
-    assert remaining == []
+    assert len(remaining) == 1
+    assert remaining[0].is_active is False
+
+
+def test_a_deactivated_token_is_never_sent_to_again(db, monkeypatch):
+    customer = _customer(db)
+    upsert_push_token(db, customer.id, "ExponentPushToken[dead2]")
+
+    def fake_post_dead(*args, **kwargs):
+        return FakeResponse([{"status": "error", "details": {"error": "DeviceNotRegistered"}}])
+
+    monkeypatch.setattr("app.services.push.expo_provider.httpx.post", fake_post_dead)
+    send_push_to_user(db, customer.id, "Title", "Body")
+    db.commit()
+
+    called = False
+
+    def fake_post_should_not_run(*args, **kwargs):
+        nonlocal called
+        called = True
+        return FakeResponse([])
+
+    monkeypatch.setattr("app.services.push.expo_provider.httpx.post", fake_post_should_not_run)
+    send_push_to_user(db, customer.id, "Another title", "Another body")
+    assert called is False  # no active token left to send to at all
 
 
 def test_send_push_to_users_in_background_uses_its_own_independent_session(db, monkeypatch):
@@ -165,17 +193,18 @@ def test_send_push_to_users_in_background_uses_its_own_independent_session(db, m
     def fake_post(*args, **kwargs):
         return FakeResponse([{"status": "error", "details": {"error": "DeviceNotRegistered"}}])
 
-    monkeypatch.setattr("app.services.push_notifications.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.push.expo_provider.httpx.post", fake_post)
 
     push_notifications.send_push_to_users_in_background([customer.id], "Title", "Body")
 
     # A brand-new session against the same engine — never the `db`
-    # fixture's own session object — proves the deletion was actually
-    # committed by the background function itself, not left uncommitted
-    # in a session only that function ever touched.
+    # fixture's own session object — proves the deactivation was
+    # actually committed by the background function itself, not left
+    # uncommitted in a session only that function ever touched.
     with Session(db.get_bind()) as verify:
         remaining = verify.query(PushToken).filter(PushToken.user_id == customer.id).all()
-        assert remaining == []
+        assert len(remaining) == 1
+        assert remaining[0].is_active is False
 
 
 def test_network_failure_is_swallowed_and_does_not_raise(db, monkeypatch):
@@ -183,9 +212,13 @@ def test_network_failure_is_swallowed_and_does_not_raise(db, monkeypatch):
     upsert_push_token(db, customer.id, "ExponentPushToken[aaa]")
 
     def fake_post(*args, **kwargs):
-        raise RuntimeError("network is down")
+        raise httpx.ConnectError("network is down")
 
-    monkeypatch.setattr("app.services.push_notifications.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.push.expo_provider.httpx.post", fake_post)
+    # Retry/Failure Handling (Phase 31) — a real (if short) backoff runs
+    # between retry attempts; mocked out here so this test exercises the
+    # full retry path without actually sleeping.
+    monkeypatch.setattr("app.services.push.expo_provider.time.sleep", lambda seconds: None)
     send_push_to_user(db, customer.id, "Title", "Body")  # must not raise
 
     # the token survives - a transient network error doesn't mean the token is bad
@@ -205,7 +238,7 @@ def test_order_status_change_triggers_push_with_deep_link_data(db, monkeypatch):
         captured["messages"] = json
         return FakeResponse([{"status": "ok"}])
 
-    monkeypatch.setattr("app.services.push_notifications.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.push.expo_provider.httpx.post", fake_post)
     transition_order_status(db, order, OrderStatus.CONFIRMED)
 
     assert len(captured["messages"]) == 1
@@ -233,7 +266,7 @@ def test_broadcast_promotion_notifies_only_active_customers(db, monkeypatch):
         captured["messages"] = json
         return FakeResponse([{"status": "ok"} for _ in json])
 
-    monkeypatch.setattr("app.services.push_notifications.httpx.post", fake_post)
+    monkeypatch.setattr("app.services.push.expo_provider.httpx.post", fake_post)
     notified = broadcast_promotion(db, "50% off!", "Today only")
 
     assert notified == 1
@@ -311,7 +344,15 @@ def test_register_and_unregister_push_token_over_http():
             assert unregister.status_code == 204
 
         with Session(engine) as check:
-            assert check.query(PushToken).filter(PushToken.user_id == customer_id).count() == 0
+            # Push Token Domain (Phase 14) — unregister (logout) soft-
+            # deactivates the row rather than deleting it outright, unlike
+            # Expo's own DeviceNotRegistered cleanup (see
+            # test_stale_token_is_removed_on_device_not_registered), so the
+            # row survives for a future re-registration of the same device
+            # to revive.
+            remaining = check.query(PushToken).filter(PushToken.user_id == customer_id).all()
+            assert len(remaining) == 1
+            assert remaining[0].is_active is False
     finally:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(engine)

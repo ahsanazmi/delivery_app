@@ -26,6 +26,22 @@ jest.mock("@/services/api/deliveriesApi", () => ({
   completeDelivery: jest.fn(),
 }));
 
+// Maps & Location System Phase 21 — this screen now renders DeliveryMap
+// (MapLibre), which can't render in Jest (no native host) — same mock
+// shape as customer-mobile's RiderMap.test.tsx.
+jest.mock("@maplibre/maplibre-react-native", () => {
+  const { View } = require("react-native");
+  return {
+    Map: ({ children, ...props }: any) => <View testID="maplibre-map" {...props}>{children}</View>,
+    Camera: () => null,
+    Marker: ({ id, children }: any) => <View testID={`marker-${id}`}>{children}</View>,
+  };
+});
+
+jest.mock("@/features/location/device-location", () => ({
+  requestDeviceLocation: jest.fn().mockResolvedValue({ status: "denied" }),
+}));
+
 import RiderDeliveryDetailScreen from "../(rider)/delivery/[id]";
 
 function baseDelivery(overrides: Record<string, unknown> = {}) {

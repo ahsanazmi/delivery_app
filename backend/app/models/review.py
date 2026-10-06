@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -12,6 +12,13 @@ class ReviewTarget(str, enum.Enum):
     RESTAURANT = "restaurant"
     FOOD = "food"
     RIDER = "rider"
+
+
+class ReviewStatus(str, enum.Enum):
+    PUBLISHED = "published"
+    HIDDEN = "hidden"
+    FLAGGED = "flagged"
+    REMOVED = "removed"
 
 
 class Review(Base):
@@ -27,6 +34,13 @@ class Review(Base):
             name="ck_reviews_delivery_rating_range",
         ),
         UniqueConstraint("order_id", name="uq_reviews_order_id"),
+        # Reviews & Ratings Phase 6 — the aggregation recompute (Phase 25-27)
+        # and the moderated public-list filter (Phase 3) both query
+        # "this target's PUBLISHED reviews"; these composite indexes serve
+        # that access pattern directly instead of falling back to the plain
+        # restaurant_id/rider_id indexes below plus a status filter scan.
+        Index("ix_reviews_restaurant_id_status", "restaurant_id", "status"),
+        Index("ix_reviews_rider_id_status", "rider_id", "status"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -48,6 +62,19 @@ class Review(Base):
     order_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("orders.id", ondelete="CASCADE"), nullable=True, index=True)
     restaurant_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     delivery_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Moderation status (Reviews & Ratings Phase 3). Only PUBLISHED reviews are
+    # ever returned by public-facing read paths or counted in rating
+    # aggregation; HIDDEN/FLAGGED/REMOVED stay visible only to the admin and
+    # to the reviewing customer's own history. There is no separate "deleted"
+    # flag — self-delete and admin-removal both land here as REMOVED, which
+    # keeps every read path's filter to a single, always-correct condition.
+    status: Mapped[ReviewStatus] = mapped_column(
+        Enum(ReviewStatus, name="review_status", values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        default=ReviewStatus.PUBLISHED,
+        server_default=ReviewStatus.PUBLISHED.value,
+        nullable=False,
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

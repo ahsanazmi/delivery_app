@@ -1,7 +1,6 @@
 # customer subpackage for v1 APIs
 from . import (
     profile,
-    addresses,
     restaurants,
     categories,
     products,
@@ -20,7 +19,6 @@ from . import (
 
 __all__ = [
     "profile",
-    "addresses",
     "restaurants",
     "categories",
     "products",

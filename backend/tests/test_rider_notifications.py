@@ -208,6 +208,27 @@ def test_mark_notification_read_and_read_all(client):
     assert all(n["is_read"] is True for n in notifications)
 
 
+def test_unread_count_endpoint(client):
+    token = _register_and_login_rider(client, email="unread-count-notif@example.com", phone="9910000097")
+    rider_id = _rider_id(client, token)
+    admin_token = _make_admin(client, email="admin-unread-notif@example.com", phone="9910000098")
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
+    headers = {"Authorization": f"Bearer {token}"}
+
+    client.patch(f"/api/v1/admin/riders/{rider_id}/verification", headers=admin_headers, json={"approval_status": "APPROVED"})
+    client.patch(f"/api/v1/admin/riders/{rider_id}/verification", headers=admin_headers, json={"approval_status": "SUSPENDED"})
+
+    count = client.get("/api/v1/rider/notifications/unread-count", headers=headers)
+    assert count.status_code == 200
+    assert count.json()["unread_count"] == 2
+
+    notifications = client.get("/api/v1/rider/notifications", headers=headers).json()
+    client.post(f"/api/v1/rider/notifications/{notifications[0]['id']}/read", headers=headers)
+
+    count_after = client.get("/api/v1/rider/notifications/unread-count", headers=headers)
+    assert count_after.json()["unread_count"] == 1
+
+
 def test_cannot_mark_another_riders_notification_read(client):
     token_a = _register_and_login_rider(client, email="notif-a@example.com", phone="9910000015")
     rider_a_id = _rider_id(client, token_a)
@@ -251,7 +272,8 @@ def test_all_eight_notification_types_are_valid_and_round_trip(client):
     ):
         db.add(
             Notification(
-                user_id=_UUID(rider_id), type=notification_type, title=notification_type.value, body="test"
+                user_id=_UUID(rider_id), role=UserRole.RIDER, type=notification_type,
+                title=notification_type.value, body="test",
             )
         )
     db.commit()

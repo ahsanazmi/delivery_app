@@ -27,6 +27,7 @@ def checkout_preview(db: DbSession, current_user: User = Depends(require_custome
         removed_items=result["removed_items"],
         coupon_code=result["coupon_code"],
         coupon_message=result["coupon_message"],
+        distance_km=result["distance_km"],
         issues=result["issues"],
     )
 
@@ -48,4 +49,5 @@ def order_validate(payload: OrderValidateRequest, db: DbSession, current_user: U
         total_items=result["total_items"],
         removed_items=result["removed_items"],
         coupon_code=result["coupon_code"],
+        distance_km=result["distance_km"],
     )

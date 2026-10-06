@@ -271,7 +271,7 @@ def test_order_payment_and_delivery_assignment_are_the_same_rows_admin_and_every
 
         # ---- CUSTOMER places the order through the real checkout path ----
         address = client.post(
-            "/api/v1/customer/addresses", headers=customer_headers,
+            "/api/v1/addresses", headers=customer_headers,
             json={
                 "label": "Home", "recipient_name": "Customer C", "phone": "9200000022",
                 "address_line": "1 MG Road", "city": "Bengaluru", "state": "Karnataka", "postal_code": "560001",

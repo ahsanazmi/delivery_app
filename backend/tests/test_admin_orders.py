@@ -229,6 +229,38 @@ def test_get_order_detail_includes_customer_delivery_location(client):
     assert Decimal(body["longitude"]) == Decimal("83.1836000")
 
 
+def test_get_order_detail_includes_rider_location_while_actively_delivering(client):
+    """Live Rider Tracking Phase 27 — Restaurant/Admin Visibility, gated
+    to the same time-boxed window the customer's own tracking view uses."""
+    from datetime import UTC, datetime
+
+    db = _db(client)
+    headers = _admin_headers(db)
+    rider = _make_user(db, name="Rider", email="admin-p27-rider@example.com", phone="8900000031", role=UserRole.RIDER)
+    rider.current_latitude = Decimal("26.1000000")
+    rider.current_longitude = Decimal("83.2000000")
+    rider.location_updated_at = datetime.now(UTC)
+    db.commit()
+    order = _make_order(db, rider_id=rider.id, status=OrderStatus.OUT_FOR_DELIVERY)
+
+    response = client.get(f"{ORDERS_URL}/{order.id}", headers=headers)
+    body = response.json()
+    assert Decimal(body["rider_latitude"]) == Decimal("26.1000000")
+    assert Decimal(body["rider_longitude"]) == Decimal("83.2000000")
+    assert body["rider_location_updated_at"] is not None
+
+
+def test_get_order_detail_hides_rider_location_before_assignment(client):
+    db = _db(client)
+    headers = _admin_headers(db)
+    order = _make_order(db)
+
+    response = client.get(f"{ORDERS_URL}/{order.id}", headers=headers)
+    body = response.json()
+    assert body["rider_latitude"] is None
+    assert body["rider_longitude"] is None
+
+
 def test_order_list_never_exposes_customer_delivery_location(client):
     """Least-privilege boundary (Phase 11's own instruction) — browsing the
     order list is a common, frequent admin action that has no need for a

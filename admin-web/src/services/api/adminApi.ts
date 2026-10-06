@@ -144,6 +144,19 @@ export type AdminOrderDetail = AdminOrderSummary & {
   customer_phone: string | null;
   restaurant_phone: string | null;
   restaurant_address: string | null;
+  // Maps & Location System Phase 11 — customer delivery location. Only on
+  // Detail, never on AdminOrderSummary/the order list — least-privilege,
+  // a customer's precise address is visible only once an admin opens
+  // this specific order.
+  address_line: string;
+  city: string;
+  state: string | null;
+  postal_code: string;
+  landmark: string | null;
+  latitude: string | null;
+  longitude: string | null;
+  service_area_zone_name: string | null;
+  service_area_city: string | null;
   items: AdminOrderItem[];
   status_history: AdminOrderStatusHistoryEntry[];
 };

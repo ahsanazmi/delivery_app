@@ -59,8 +59,12 @@ AZAMGARH_DISTRICT_FEATURE = {
 @pytest.fixture(autouse=True)
 def _reset_throttle():
     location_search._last_request_at = 0.0
+    location_search._search_cache._store.clear()
+    location_search._reverse_cache._store.clear()
     yield
     location_search._last_request_at = 0.0
+    location_search._search_cache._store.clear()
+    location_search._reverse_cache._store.clear()
 
 
 def _fake_response(features: list[dict]):
@@ -153,6 +157,46 @@ def test_search_places_returns_empty_for_a_too_short_query_without_calling_the_p
 
     assert location_search.search_places("a") == []
     mock_get.assert_not_called()
+
+
+def test_search_places_returns_a_cached_result_for_a_repeat_query_without_calling_the_provider_again(monkeypatch):
+    """Maps & Location System Phase 27 — Map Billing & Quota Safety: a
+    repeat search for the same query text is answered from cache, never
+    a second call to Photon."""
+    mock_get = MagicMock(return_value=_fake_response([AZAMGARH_CITY_FEATURE]))
+    monkeypatch.setattr(location_search.httpx, "get", mock_get)
+
+    first = location_search.search_places("Azamgarh")
+    second = location_search.search_places("Azamgarh")
+
+    assert mock_get.call_count == 1
+    assert first == second
+
+
+def test_reverse_geocode_returns_a_cached_result_for_a_repeat_coordinate_without_calling_the_provider_again(monkeypatch):
+    mock_get = MagicMock(return_value=_fake_response([AZAMGARH_CITY_FEATURE]))
+    monkeypatch.setattr(location_search.httpx, "get", mock_get)
+
+    first = location_search.reverse_geocode(Decimal("26.0654351"), Decimal("83.184439"))
+    second = location_search.reverse_geocode(Decimal("26.0654351"), Decimal("83.184439"))
+
+    assert mock_get.call_count == 1
+    assert first == second
+
+
+def test_reverse_geocode_caches_a_none_result_too_not_just_a_found_place(monkeypatch):
+    """A cached "nothing found here" must be distinguishable from a cache
+    miss — this is the specific bug TTLCache.get()'s (hit, value) tuple
+    return shape exists to prevent."""
+    mock_get = MagicMock(return_value=_fake_response([]))
+    monkeypatch.setattr(location_search.httpx, "get", mock_get)
+
+    first = location_search.reverse_geocode(Decimal("0.0"), Decimal("0.0"))
+    second = location_search.reverse_geocode(Decimal("0.0"), Decimal("0.0"))
+
+    assert first is None
+    assert second is None
+    assert mock_get.call_count == 1
 
 
 def test_search_places_raises_when_the_provider_is_unreachable(monkeypatch):

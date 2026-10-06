@@ -1,10 +1,36 @@
+import { useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { useSession } from "@/features/auth/session-context";
+import { getUnreadRestaurantNotificationCount } from "@/services/api/notificationsApi";
+
+// Same 15s cadence the notifications page itself polls at — a nav badge
+// lagging the page's own count by up to one interval is an acceptable
+// tradeoff against adding a second, faster poll loop just for the badge.
+const POLL_INTERVAL_MS = 15000;
 
 export function RestaurantLayout() {
   const navigate = useNavigate();
-  const { user, signOut } = useSession();
+  const { user, signOut, accessToken } = useSession();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const loadUnreadCount = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      const { unread_count } = await getUnreadRestaurantNotificationCount(accessToken);
+      setUnreadCount(unread_count);
+    } catch {
+      // Silent — a stale/missing badge count must never block the portal.
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    void loadUnreadCount();
+    const interval = setInterval(() => {
+      void loadUnreadCount();
+    }, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [loadUnreadCount]);
 
   async function handleLogout() {
     await signOut();
@@ -40,6 +66,10 @@ export function RestaurantLayout() {
         </NavLink>
         <NavLink to="/orders" className={({ isActive }) => (isActive ? "portal-nav-link active" : "portal-nav-link")}>
           Orders
+        </NavLink>
+        <NavLink to="/notifications" className={({ isActive }) => (isActive ? "portal-nav-link active" : "portal-nav-link")}>
+          Notifications
+          {unreadCount > 0 && <span className="new-order-badge">{unreadCount}</span>}
         </NavLink>
       </nav>
       <Outlet />

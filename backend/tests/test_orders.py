@@ -74,6 +74,60 @@ def test_create_order_builds_order_and_clears_cart():
     db.close()
 
 
+def test_create_order_snapshots_the_full_delivery_location_from_the_address():
+    """Maps & Location System Phase 12 — Order Delivery Address Snapshot.
+    Every location field on the address at the moment of ordering
+    (including place_id, the piece this phase specifically calls out) is
+    copied onto the order itself."""
+    db = _db_session()
+    customer = User(name="Priya Customer", email="priya-p12@example.com", password_hash="x", role=UserRole.CUSTOMER, phone="9998887771")
+    db.add(customer)
+    db.commit()
+
+    owner = User(name="Owner", email="owner-p12@example.com", password_hash="x", role=UserRole.RESTAURANT_OWNER)
+    db.add(owner)
+    db.commit()
+    restaurant = Restaurant(
+        owner_id=owner.id, name="Chai House", phone="9876543210", address="Main Road",
+        latitude=Decimal("12.1"), longitude=Decimal("77.1"), minimum_order=Decimal("0.00"), delivery_fee=Decimal("0.00"),
+    )
+    db.add(restaurant)
+    db.commit()
+    dosa = Product(restaurant_id=restaurant.id, name="Masala Dosa", price=Decimal("120.00"))
+    db.add(dosa)
+    db.commit()
+
+    cart = create_cart_for_user(db, customer.id)
+    add_item(db, cart, dosa.id, 1)
+
+    address = create_address(db, customer.id, {
+        "label": "Home",
+        "recipient_name": "Priya Customer",
+        "phone": "9998887771",
+        "address_line": "15 Market Road",
+        "city": "Bengaluru",
+        "state": "Karnataka",
+        "postal_code": "560001",
+        "landmark": "Near bus stand",
+        "latitude": Decimal("12.9716"),
+        "longitude": Decimal("77.5946"),
+        "place_id": "N:12345",
+    })
+
+    order = create_order(db, customer, address.id)
+
+    assert order.address_line == address.address_line
+    assert order.city == address.city
+    assert order.state == address.state
+    assert order.postal_code == address.postal_code
+    assert order.landmark == address.landmark
+    assert order.latitude == address.latitude
+    assert order.longitude == address.longitude
+    assert order.place_id == address.place_id == "N:12345"
+
+    db.close()
+
+
 def test_create_order_fails_when_cart_empty():
     db = _db_session()
     customer = User(name="Priya", email="priya2@example.com", password_hash="x", role=UserRole.CUSTOMER)

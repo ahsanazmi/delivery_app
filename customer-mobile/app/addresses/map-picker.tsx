@@ -1,50 +1,41 @@
+import { Camera, Map, type CameraRef, type LngLat } from "@maplibre/maplibre-react-native";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, PROVIDER_GOOGLE, type Region } from "react-native-maps";
+import { useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useLocationPicker } from "@/features/addresses/location-picker-context";
 import { usePickedPlace } from "@/features/addresses/place-search-context";
 import { useSession } from "@/features/auth/session-context";
 import { requestDeviceLocation } from "@/features/location/device-location";
+import { MAP_ATTRIBUTION_TEXT, MAP_STYLE_URL } from "@/features/tracking/map-tile-config";
 import { reverseGeocode } from "@/services/api/locationSearchApi";
 
-// Maps & Location System Phase 6/7/8 — Customer Map Picker + Device
-// Location Permission + Reverse Geocoding. Auto-centering on the
-// customer's real position is purely a convenience here, never a
-// requirement — dragging the pin or tapping the map (map selection, per
-// Phase 7's own "must remain available" list) works identically
-// regardless of permission state, so a denied/disabled/unavailable
-// result never blocks anything; it just means the map opens centered on
-// the default region (Azamgarh, this platform's actual first launch
-// city) with a small inline note instead of a blocking Alert — the
-// customer opens this screen specifically to place a pin themselves, so
-// interrupting that with a popup every time location is off would be
-// the wrong trade-off.
+// Maps & Location System Phase 6/7/8/9 — Customer Map Picker + Device
+// Location Permission + Reverse Geocoding. Rebuilt on MapLibre Native
+// (matching the "no Google Maps" direction confirmed for the rest of
+// this platform's location work) — this screen originally used
+// react-native-maps/PROVIDER_GOOGLE and was the one map on this platform
+// never migrated when that direction was set; it also turned out to
+// have no Google Maps API key actually wired into app.config.ts's native
+// build config at all (no android.config.googleMaps.apiKey), so it was
+// already broken for a real native build, not just inconsistent.
 //
-// Confirming a pin (Phase 8) reverse-geocodes it on the backend — never
-// a client-fabricated address for a coordinate — and hands the full
-// result to AddressForm via the same place-search-context Phase 9
-// already established, so a map pin now pre-fills the same address text
-// fields a search result does. If reverse geocoding finds nothing or
-// the service is unavailable, this falls back to Phase 6's original
-// behavior (just the coordinate, via location-picker-context) — never
-// blocking the confirm action itself.
-const DEFAULT_REGION: Region = {
-  latitude: 26.068,
-  longitude: 83.1836,
-  latitudeDelta: 0.05,
-  longitudeDelta: 0.05,
-};
+// MapLibre Native's own Marker has no drag/onDragEnd support (checked
+// against its real .d.ts before writing this, not guessed) — the marker
+// picker pattern here is the same one Google Maps/Uber/etc. use for
+// their own pickers instead: a pin fixed at the visual center of the
+// screen, with the MAP itself panning underneath it. Confirming a pin
+// (Phase 8) reverse-geocodes it on the backend, same as before.
+const DEFAULT_CENTER: LngLat = [83.1836, 26.068];
 
 export default function MapPickerScreen() {
   const router = useRouter();
   const { accessToken } = useSession();
   const { setPickedLocation } = useLocationPicker();
   const { setPickedPlace } = usePickedPlace();
-  const [region, setRegion] = useState<Region>(DEFAULT_REGION);
-  const [marker, setMarker] = useState({ latitude: DEFAULT_REGION.latitude, longitude: DEFAULT_REGION.longitude });
+  const cameraRef = useRef<CameraRef>(null);
+  const [center, setCenter] = useState<LngLat>(DEFAULT_CENTER);
   const [usedDefaultCenter, setUsedDefaultCenter] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
@@ -53,9 +44,9 @@ export default function MapPickerScreen() {
     requestDeviceLocation().then((result) => {
       if (cancelled) return;
       if (result.status === "granted") {
-        const next = { latitude: result.latitude, longitude: result.longitude };
-        setMarker(next);
-        setRegion({ ...next, latitudeDelta: 0.01, longitudeDelta: 0.01 });
+        const next: LngLat = [result.longitude, result.latitude];
+        setCenter(next);
+        cameraRef.current?.easeTo({ center: next, zoom: 16, duration: 0 });
       } else {
         setUsedDefaultCenter(true);
       }
@@ -66,6 +57,7 @@ export default function MapPickerScreen() {
   }, []);
 
   async function handleConfirm() {
+    const marker = { latitude: center[1], longitude: center[0] };
     if (!accessToken) {
       setPickedLocation(marker);
       router.back();
@@ -102,28 +94,29 @@ export default function MapPickerScreen() {
         <View style={styles.headerSpacer} />
       </View>
 
-      <MapView
-        style={styles.map}
-        provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
-        initialRegion={DEFAULT_REGION}
-        region={region}
-        onPress={(event) => {
-          const coordinate = event.nativeEvent.coordinate;
-          setMarker(coordinate);
-        }}
-      >
-        <Marker
-          coordinate={marker}
-          draggable
-          onDragEnd={(event) => setMarker(event.nativeEvent.coordinate)}
-        />
-      </MapView>
+      <View style={styles.mapWrap}>
+        <Map
+          style={styles.map}
+          mapStyle={MAP_STYLE_URL}
+          onPress={(event) => cameraRef.current?.easeTo({ center: event.nativeEvent.lngLat, duration: 250 })}
+          onRegionDidChange={(event) => setCenter(event.nativeEvent.center)}
+        >
+          <Camera ref={cameraRef} initialViewState={{ center: DEFAULT_CENTER, zoom: 14 }} />
+        </Map>
+        <View style={styles.centerPinWrap} pointerEvents="none">
+          <View style={styles.pin} />
+          <View style={styles.pinTip} />
+        </View>
+        <View style={styles.attributionBadge}>
+          <Text style={styles.attributionText}>{MAP_ATTRIBUTION_TEXT}</Text>
+        </View>
+      </View>
 
       <View style={styles.footer}>
-        <Text style={styles.hint}>Tap the map or drag the pin to move the delivery location.</Text>
+        <Text style={styles.hint}>Tap the map or drag it to move the delivery location.</Text>
         {usedDefaultCenter && (
           <Text style={styles.locationHint}>
-            Couldn't use your current location — move the pin to your delivery spot.
+            Couldn't use your current location — move the map to your delivery spot.
           </Text>
         )}
         <Pressable style={styles.confirmButton} onPress={handleConfirm} disabled={confirming}>
@@ -157,7 +150,40 @@ const styles = StyleSheet.create({
   backText: { color: "#241913", fontSize: 24, fontWeight: "700" },
   title: { fontSize: 20, fontWeight: "800", color: "#241913" },
   headerSpacer: { width: 40 },
+  mapWrap: { flex: 1 },
   map: { flex: 1 },
+  centerPinWrap: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    marginLeft: -12,
+    marginTop: -30,
+    alignItems: "center",
+  },
+  pin: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#FF5A1F",
+    borderWidth: 3,
+    borderColor: "#fff",
+  },
+  pinTip: {
+    width: 2,
+    height: 12,
+    backgroundColor: "#FF5A1F",
+    marginTop: -2,
+  },
+  attributionBadge: {
+    position: "absolute",
+    right: 6,
+    bottom: 6,
+    backgroundColor: "rgba(255,255,255,0.85)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  attributionText: { color: "#352C27", fontSize: 9 },
   footer: {
     padding: 18,
     backgroundColor: "#fff",

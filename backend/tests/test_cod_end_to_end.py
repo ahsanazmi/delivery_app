@@ -126,7 +126,7 @@ def test_complete_cod_flow_end_to_end_and_amount_is_tamper_proof(engine):
         # actual checkout endpoint exposes today).
         # ------------------------------------------------------------
         address = client.post(
-            "/api/v1/customer/addresses", headers=customer_headers,
+            "/api/v1/addresses", headers=customer_headers,
             json={
                 "label": "Home", "recipient_name": "Cash Customer", "phone": "9400000002",
                 "address_line": "9 Cash Lane", "city": "Bengaluru", "state": "Karnataka", "postal_code": "560003",
@@ -267,7 +267,7 @@ def test_no_client_can_manipulate_the_cod_amount(engine):
         _onboard_rider(client, rider_headers, rider_id, admin_headers)
 
         address = client.post(
-            "/api/v1/customer/addresses", headers=customer_headers,
+            "/api/v1/addresses", headers=customer_headers,
             json={
                 "label": "Home", "recipient_name": "Cash Customer 2", "phone": "9400000011",
                 "address_line": "10 Cash Lane", "city": "Bengaluru", "state": "Karnataka", "postal_code": "560004",
@@ -396,7 +396,7 @@ def test_integration_cod_settlement_and_admin_reconciliation(engine):
 
         # ---- Customer places COD order -> Restaurant prepares ----
         address = client.post(
-            "/api/v1/customer/addresses", headers=customer_headers,
+            "/api/v1/addresses", headers=customer_headers,
             json={
                 "label": "Home", "recipient_name": "Cash Customer 3", "phone": "9400000021",
                 "address_line": "11 Cash Lane", "city": "Bengaluru", "state": "Karnataka", "postal_code": "560005",

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState, type AppStateStatus } from "react-native";
 
 import { ApiError } from "@/services/api/apiClient";
 import {
@@ -31,23 +32,37 @@ export function useOrderTracking(accessToken: string | null, orderId: string | u
   const attemptRef = useRef(0);
   const stoppedRef = useRef(false);
 
-  const pollOnce = useCallback(async () => {
-    if (!accessToken || !orderId) return;
-    try {
-      const data = await getOrderTracking(accessToken, orderId);
-      setTracking(data);
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Unable to load tracking.");
-    }
-  }, [accessToken, orderId]);
-
   const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
     }
   }, []);
+
+  const pollOnce = useCallback(async () => {
+    if (!accessToken || !orderId) return;
+    try {
+      const data = await getOrderTracking(accessToken, orderId);
+      setTracking(data);
+      setError(null);
+      // Live Rider Tracking Phase 33 — Fallback Polling must stop once it's
+      // no longer necessary. A terminal status can arrive via a poll
+      // response too (not just the WS onmessage handler below) if the
+      // socket is still down when the order finishes — without this, a
+      // customer whose WebSocket never recovers would keep polling a
+      // completed order forever.
+      if (TERMINAL_ORDER_STATUSES.includes(data.order_status)) {
+        stoppedRef.current = true;
+        stopPolling();
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = null;
+        }
+      }
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : "Unable to load tracking.");
+    }
+  }, [accessToken, orderId, stopPolling]);
 
   const startPolling = useCallback(() => {
     if (pollTimerRef.current) return;
@@ -115,6 +130,40 @@ export function useOrderTracking(accessToken: string | null, orderId: string | u
       socketRef.current = null;
     };
   }, [connect, stopPolling]);
+
+  // Live Rider Tracking Phase 20 — Reconnection Handling: "app
+  // backgrounded / app resumed." A socket can go silently stale while the
+  // OS suspends the app's networking in the background — no onclose ever
+  // fires for that, so `connect` alone wouldn't know to do anything.
+  // Forcing a fresh connection specifically on the foreground transition
+  // (not on every AppState change) guarantees the customer never looks at
+  // a screen that's actually been disconnected for a while without
+  // knowing it, and also gets an immediate fresh snapshot rather than
+  // waiting for the next event that may or may not still be coming.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState: AppStateStatus) => {
+      if (nextState !== "active" || stoppedRef.current) return;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      attemptRef.current = 0;
+      // Detach the old socket's handlers before closing it — otherwise its
+      // own onclose would still fire (close() is async) and schedule a
+      // second, competing reconnect right on top of the one below.
+      const staleSocket = socketRef.current;
+      if (staleSocket) {
+        staleSocket.onopen = null;
+        staleSocket.onmessage = null;
+        staleSocket.onerror = null;
+        staleSocket.onclose = null;
+        staleSocket.close();
+      }
+      socketRef.current = null;
+      connect();
+    });
+    return () => subscription.remove();
+  }, [connect]);
 
   return { tracking, error, connectionState, refresh: pollOnce };
 }

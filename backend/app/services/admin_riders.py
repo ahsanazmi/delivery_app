@@ -15,6 +15,7 @@ from app.schemas.admin import AdminRiderDetail, AdminRiderListResponse, AdminRid
 from app.schemas.rider_document import RiderDocumentRead
 from app.services.admin_account_status import set_user_active_status
 from app.services.admin_audit_log import record_admin_audit_log
+from app.services.notifications import notify_rider_document_reviewed
 from app.services.rider_documents import get_rider_document_or_404, list_rider_documents, review_rider_document
 from app.services.rider_history import list_rider_history
 from app.services.rider_service import get_or_create_delivery_partner, update_rider_verification
@@ -262,7 +263,7 @@ def list_admin_rider_documents(db: Session, rider_id: UUID) -> list[RiderDocumen
 def _transition_document(
     db: Session, rider_id: UUID, document_id: UUID, action: str, rejection_reason: str | None
 ) -> RiderDocumentRead:
-    _get_rider_or_404(db, rider_id)
+    rider = _get_rider_or_404(db, rider_id)
     document = get_rider_document_or_404(db, rider_id, document_id)
     if document.verification_status not in _DOCUMENT_ACTION_VALID_FROM[action]:
         raise HTTPException(
@@ -271,6 +272,7 @@ def _transition_document(
         )
     new_status = DocumentVerificationStatus.APPROVED if action == "approve" else DocumentVerificationStatus.REJECTED
     updated = review_rider_document(db, document, new_status, rejection_reason)
+    notify_rider_document_reviewed(db, rider, updated)
     return RiderDocumentRead.model_validate(updated)
 
 

@@ -5,6 +5,7 @@ import { RestaurantLayout } from "@/layouts/RestaurantLayout";
 import Login from "@/pages/auth/Login";
 import Categories from "@/pages/restaurant/Categories";
 import Dashboard from "@/pages/restaurant/Dashboard";
+import Notifications from "@/pages/restaurant/Notifications";
 import OperatingHours from "@/pages/restaurant/OperatingHours";
 import OrderDetails from "@/pages/restaurant/OrderDetails";
 import Orders from "@/pages/restaurant/Orders";
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="/products" element={<Products />} />
           <Route path="/orders" element={<Orders />} />
           <Route path="/orders/:orderId" element={<OrderDetails />} />
+          <Route path="/notifications" element={<Notifications />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to={status === "authenticated" ? "/dashboard" : "/login"} replace />} />

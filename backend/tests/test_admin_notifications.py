@@ -115,6 +115,49 @@ def test_list_mark_read_and_mark_all_read_work_for_an_admin(client):
     assert all(row["is_read"] for row in listed_after)
 
 
+def test_unread_count_is_scoped_to_the_calling_admin_only(client):
+    """Notifications & Communication System Phase 9 — the exact security
+    requirement this phase states by name: "Admins must not automatically
+    have access to every user's private notification records." Two
+    separate admins, and a customer whose own notifications must never be
+    counted by either admin's endpoint."""
+    db = _db(client)
+    admin_a = _admin(db, "unread-a")
+    admin_b = _admin(db, "unread-b")
+    customer = _make_user(db, name="Cust", email="cust-p9-unread@example.com", phone="7100000099", role=UserRole.CUSTOMER)
+
+    owner = _make_user(db, name="Owner", email="owner-p9-unread@example.com", phone="7100000098", role=UserRole.RESTAURANT_OWNER)
+    create_restaurant(
+        db, RestaurantCreate(
+            name="Unread Diner", phone="9876500099", address="Addr 1 Road", latitude=Decimal("12.97"), longitude=Decimal("77.59"), owner_id=owner.id,
+        ),
+        actor=admin_a,
+    )
+
+    # Both admins get their own copy of the broadcast alert (notify_admins
+    # fans out one row per active admin) — the count must reflect that
+    # same 1, not 0 and not some shared/aggregate number.
+    count_a = client.get(f"{NOTIFICATIONS_URL}/unread-count", headers=_admin_headers(admin_a))
+    count_b = client.get(f"{NOTIFICATIONS_URL}/unread-count", headers=_admin_headers(admin_b))
+    assert count_a.status_code == 200
+    assert count_a.json()["unread_count"] == 1
+    assert count_b.json()["unread_count"] == 1
+
+    customer_count = client.get(
+        "/api/v1/customer/notifications/unread-count", headers={"Authorization": f"Bearer {create_access_token(customer.id)}"}
+    )
+    assert customer_count.json()["unread_count"] == 0
+
+    client.post(
+        f"{NOTIFICATIONS_URL}/{client.get(NOTIFICATIONS_URL, headers=_admin_headers(admin_a)).json()[0]['id']}/read",
+        headers=_admin_headers(admin_a),
+    )
+    after_read_a = client.get(f"{NOTIFICATIONS_URL}/unread-count", headers=_admin_headers(admin_a))
+    after_read_b = client.get(f"{NOTIFICATIONS_URL}/unread-count", headers=_admin_headers(admin_b))
+    assert after_read_a.json()["unread_count"] == 0
+    assert after_read_b.json()["unread_count"] == 1, "admin B's own copy must be unaffected by admin A marking theirs read"
+
+
 def test_new_restaurant_registration_notifies_only_active_admins(client):
     db = _db(client)
     active_admin = _admin(db, "active-r")
@@ -197,12 +240,18 @@ def test_order_cancellation_and_rejection_notify_admins_as_order_issue(client):
     rejected_order = _make_order(OrderStatus.PLACED)
     transition_order_status(db, rejected_order, OrderStatus.REJECTED)
 
+    # Rate Limiting / Anti-Spam (Phase 33) — two ORDER_ISSUE alerts for
+    # the same still-unread admin within the aggregation window fold
+    # into the one existing row (an occurrence count, not a second
+    # push/row) rather than each getting their own — see notify_admins's
+    # own note on why this applies to admin alerts specifically, never
+    # to a customer/rider/restaurant's own notification.
     rows = db.query(Notification).filter(
         Notification.user_id == admin.id, Notification.type == NotificationType.ORDER_ISSUE
     ).all()
-    order_ids = {row.order_id for row in rows}
-    assert cancelled_order.id in order_ids
-    assert rejected_order.id in order_ids
+    assert len(rows) == 1
+    assert rows[0].order_id == cancelled_order.id  # the first occurrence's own row
+    assert "2 similar alerts" in rows[0].body
 
 
 def test_payment_verification_failure_notifies_admins(client, monkeypatch):

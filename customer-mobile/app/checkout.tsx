@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { DeliveryLocationPreview } from "@/features/addresses/DeliveryLocationPreview";
 import { useSession } from "@/features/auth/session-context";
 import { useCart } from "@/features/cart/cart-context";
 import { presentDeviceLocationAlert, requestDeviceLocation } from "@/features/location/device-location";
@@ -396,6 +397,23 @@ export default function CheckoutScreen() {
                 </Pressable>
               ))
             )}
+            {(() => {
+              const selected = checkout.addresses.find((a) => a.id === selectedAddressId);
+              if (!selected || selected.latitude == null || selected.longitude == null) return null;
+              // checkout.distance_km is computed server-side against
+              // checkout.selected_address (the backend's own default) —
+              // only attach it here when that's the same address actually
+              // highlighted in the UI, so switching addresses never shows
+              // a distance left over from a different one.
+              const distanceKm = selected.id === checkout.selected_address?.id ? checkout.distance_km : null;
+              return (
+                <DeliveryLocationPreview
+                  latitude={selected.latitude}
+                  longitude={selected.longitude}
+                  distanceKm={distanceKm}
+                />
+              );
+            })()}
           </View>
 
           <View style={styles.card}>

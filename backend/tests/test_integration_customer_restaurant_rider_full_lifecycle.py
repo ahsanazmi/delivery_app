@@ -155,7 +155,7 @@ def test_full_customer_restaurant_rider_lifecycle_visible_to_every_role(engine):
         # CUSTOMER: place the order through the real cart/checkout path.
         # ------------------------------------------------------------------
         address = client.post(
-            "/api/v1/customer/addresses", headers=customer_headers,
+            "/api/v1/addresses", headers=customer_headers,
             json={
                 "label": "Home", "recipient_name": "Customer A", "phone": "9100000002",
                 "address_line": "42 MG Road", "city": "Bengaluru", "state": "Karnataka", "postal_code": "560001",

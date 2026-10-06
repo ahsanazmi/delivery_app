@@ -4,12 +4,11 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.delivery_partner import ApprovalStatus, DeliveryPartner
-from app.models.notification import Notification, NotificationType
 from app.models.rider_document import DocumentType, DocumentVerificationStatus
 from app.models.user import User
 from app.schemas.rider import RiderProfileUpdate, RiderStatusRead, RiderVehicleUpdate
 from app.services.auth import get_user_by_email, get_user_by_phone
-from app.services.push_notifications import send_push_to_user
+from app.services.notifications import notify_rider_account_approved, notify_rider_account_suspended
 from app.services.rider_documents import list_rider_documents
 
 # Phase 7 — the documents a rider must have APPROVED before they're allowed
@@ -112,15 +111,9 @@ def update_rider_verification(
         partner.is_online = False
 
     if new_status == ApprovalStatus.APPROVED:
-        title = "Account approved"
-        body = "Your rider account has been approved. You can now go online and accept deliveries."
-        db.add(Notification(user_id=rider.id, type=NotificationType.ACCOUNT_APPROVED, title=title, body=body))
-        send_push_to_user(db, rider.id, title, body, data={"type": "account_approved"})
+        notify_rider_account_approved(db, rider)
     elif new_status == ApprovalStatus.SUSPENDED:
-        title = "Account suspended"
-        body = "Your rider account has been suspended. Contact support for details."
-        db.add(Notification(user_id=rider.id, type=NotificationType.ACCOUNT_SUSPENDED, title=title, body=body))
-        send_push_to_user(db, rider.id, title, body, data={"type": "account_suspended"})
+        notify_rider_account_suspended(db, rider)
 
     db.commit()
     db.refresh(partner)

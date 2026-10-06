@@ -211,3 +211,55 @@ def test_notifications_endpoints_over_http():
     finally:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(engine)
+
+
+def test_unread_count_endpoint_and_security():
+    """Notifications & Communication System Phase 9 — In-App Notification
+    API. Covers the new GET /unread-count route end to end, plus this
+    phase's own explicit security requirement: a customer can only ever
+    see their own unread count, never another customer's."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+
+    def override_get_db():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with Session(engine) as seed:
+            customer = _customer(seed)
+            other = _customer(seed, email="other-unread@example.com")
+            restaurant = _restaurant(seed)
+            order = _place_order(seed, customer, restaurant)
+            transition_order_status(seed, order, OrderStatus.CONFIRMED)
+            transition_order_status(seed, order, OrderStatus.PREPARING)
+            seed.commit()
+            from app.core.security import create_access_token
+
+            token = create_access_token(customer.id)
+            other_token = create_access_token(other.id)
+
+        with TestClient(app) as client:
+            headers = {"Authorization": f"Bearer {token}"}
+            count = client.get("/api/v1/customer/notifications/unread-count", headers=headers)
+            assert count.status_code == 200
+            assert count.json()["unread_count"] == 3  # placed, confirmed, preparing
+
+            # The customer who owns none of these notifications sees 0,
+            # not the other customer's count — the unread-count endpoint
+            # is scoped by the authenticated caller's own id, same as
+            # every other notification endpoint.
+            other_count = client.get("/api/v1/customer/notifications/unread-count", headers={"Authorization": f"Bearer {other_token}"})
+            assert other_count.status_code == 200
+            assert other_count.json()["unread_count"] == 0
+
+            listing = client.get("/api/v1/customer/notifications", headers=headers)
+            notification_id = listing.json()[0]["id"]
+            client.post(f"/api/v1/customer/notifications/{notification_id}/read", headers=headers)
+
+            count_after_one_read = client.get("/api/v1/customer/notifications/unread-count", headers=headers)
+            assert count_after_one_read.json()["unread_count"] == 2
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(engine)

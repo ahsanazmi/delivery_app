@@ -1,14 +1,22 @@
 """Integration Phase 18 — API Contract Validation.
 
 The real customer-mobile app manages the address book through the bare
-/api/v1/addresses path (see customer-mobile/services/api/addressesApi.ts),
-not /api/v1/customer/addresses. The Phase 2 role-isolation pass only
-covered app/api/v1/customer/*.py and never touched this file
-(app/api/v1/endpoints/addresses.py), which is a separate, parallel router
-still mounted at /api/v1/addresses (see app/api/v1/router.py) — so it kept
-using the bare CurrentUser dependency (any authenticated role) the whole
-time, undetected because no test exercised this path at all. This file
-closes that gap for the endpoint the real app actually calls.
+/api/v1/addresses path (see customer-mobile/services/api/addressesApi.ts).
+The Phase 2 role-isolation pass only covered app/api/v1/customer/*.py and
+never touched this file (app/api/v1/endpoints/addresses.py), which is a
+separate router mounted at /api/v1/addresses (see app/api/v1/router.py)
+— so it kept using the bare CurrentUser dependency (any authenticated
+role) the whole time, undetected because no test exercised this path at
+all. This file closes that gap for the endpoint the real app actually
+calls.
+
+Maps & Location System Phase 29 — a second, parallel address-book router
+(app/api/v1/customer/addresses.py, mounted at /api/v1/customer/addresses)
+existed alongside this one with subtly different PATCH semantics, confirmed
+unused by every frontend app in this monorepo, and was removed as part of
+this phase's own "do not create duplicate APIs" instruction. This file's
+"legacy" name refers only to the /api/v1/addresses path predating the
+/api/v1/customer/* convention, not to anything now deleted.
 """
 
 from app.core.security import create_access_token, hash_password

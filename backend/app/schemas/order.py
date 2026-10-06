@@ -110,6 +110,9 @@ class OrderRead(BaseModel):
     landmark: str | None
     latitude: Decimal | None
     longitude: Decimal | None
+    # Maps & Location System Phase 12 — snapshotted once at order creation,
+    # never re-derived from the customer's (possibly since-edited) Address.
+    place_id: str | None
     delivery_instructions: str | None
     cancelled_reason: str | None
     payment_status: str
@@ -133,3 +136,11 @@ class RestaurantOrderDetailRead(OrderRead):
     restaurant_earning: Decimal
     commission: Decimal
     net_amount: Decimal
+    # Live Rider Tracking Phase 27 — Restaurant/Admin Visibility. A
+    # restaurant legitimately wants to know how far out its assigned
+    # rider is; gated to the same time-boxed window as every other rider-
+    # location consumer (LOCATION_VISIBLE_STATUSES) — never a permanent
+    # or unrestricted view.
+    rider_latitude: Decimal | None
+    rider_longitude: Decimal | None
+    rider_location_updated_at: datetime | None

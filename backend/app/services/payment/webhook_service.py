@@ -45,7 +45,13 @@ from app.models.payment import PaymentProvider as PaymentProviderEnum
 from app.models.payment import PaymentStatus
 from app.models.refund import Refund, RefundStatus
 from app.models.webhook_event import WebhookEvent
-from app.services.notifications import notify_admins
+from app.services.notifications import (
+    notify_admins,
+    notify_customer_payment_failed,
+    notify_customer_payment_success,
+    notify_customer_refund_completed,
+    notify_restaurant_payment_confirmed,
+)
 from app.services.payment.razorpay_provider import _from_minor_units
 from app.services.payment.refund_service import recompute_payment_refund_status
 
@@ -152,6 +158,14 @@ def _handle_payment_captured(
     if order:
         order.payment_status = "paid"
         order.is_paid = True
+        # Payment Notifications (Phase 21) — the same two notifications
+        # PaymentService.verify_payment()'s client-driven success path
+        # already raises, so a payment confirmed via this async webhook
+        # (rather than the client's own /verify call reaching PAID first)
+        # is never silently un-notified to the customer or restaurant.
+        notify_restaurant_payment_confirmed(db, order)
+
+    notify_customer_payment_success(db, payment)
 
     return _record(
         db, event_type="payment.captured", raw_body=raw_body, outcome="payment_marked_paid",
@@ -190,6 +204,28 @@ def _handle_payment_failed(db: Session, *, raw_body: bytes, payment_entity: dict
 
     payment.payment_status = PaymentStatus.FAILED
     payment.failure_reason = payment_entity.get("error_description") or "Payment failed (reported via webhook)."
+    # Notifications & Communication System Phase 13 — Admin Notifications.
+    # PaymentService.verify_payment()'s own client-driven failure path
+    # already alerts admins (PAYMENT_FAILURE) — this async, provider-
+    # initiated failure (e.g. the customer abandoned the payment sheet
+    # before the client ever called /verify) previously raised no alert
+    # at all, a real gap: an admin had no way to learn this order's
+    # payment failed except by noticing the order itself never got paid.
+    notify_admins(
+        db, NotificationType.PAYMENT_FAILURE, "Payment failure",
+        f"Payment for order {payment.order_id} failed at the provider (reported via webhook).",
+        order_id=payment.order_id,
+    )
+    # Payment Notifications (Phase 21) — the customer's own side of this
+    # same event. PaymentService.verify_payment()'s client-driven failure
+    # path already tells them (notify_customer_payment_failed); this
+    # async webhook path previously only told admins, leaving a customer
+    # whose payment failed without the client ever reaching /verify (the
+    # same abandoned-payment-sheet case Phase 13's own admin alert
+    # covers) with no idea anything went wrong at all.
+    order = db.get(Order, payment.order_id)
+    if order:
+        notify_customer_payment_failed(db, user_id=payment.user_id, order_id=payment.order_id, order_number=order.order_number)
     return _record(
         db, event_type="payment.failed", raw_body=raw_body, outcome="payment_marked_failed",
         provider_payment_id=provider_payment_id, provider_order_id=provider_order_id, payment_id=payment.id,
@@ -227,6 +263,13 @@ def _handle_refund_processed(db: Session, *, raw_body: bytes, refund_entity: dic
     payment = db.get(Payment, refund.payment_id)
     if payment:
         recompute_payment_refund_status(db, payment)
+        # Notifications & Communication System Phase 8 — the async
+        # resolution of a refund create_refund() could only record as
+        # PROCESSING at the time. Safe against a duplicate webhook
+        # delivery of this same event by construction: the
+        # "already COMPLETED" guard above this function already returns
+        # early before this line is ever reached a second time.
+        notify_customer_refund_completed(db, refund, payment)
     return _record(
         db, event_type="refund.processed", raw_body=raw_body, outcome="refund_marked_completed",
         provider_payment_id=provider_payment_id, provider_refund_id=provider_refund_id, payment_id=refund.payment_id,
@@ -274,6 +317,22 @@ def _handle_refund_failed(db: Session, *, raw_body: bytes, refund_entity: dict[s
     logger.warning(
         "Payment error: refund %s (provider id %s) for payment %s failed at the provider.",
         refund.id, provider_refund_id, refund.payment_id,
+    )
+    # Notifications & Communication System Phase 13 — Admin Notifications,
+    # "refund issue." A refund Razorpay initially accepted (PROCESSING)
+    # failing later is exactly the kind of anomalous financial state
+    # SYSTEM_ALERT already exists for (see the adjacent
+    # payment-succeeded-for-a-dead-order alert above, and
+    # PaymentService.verify_payment()'s own copy of it) — the money never
+    # actually made it back to the customer, so this needs a human to
+    # follow up, not a dedicated new NotificationType for what is, from
+    # an admin's point of view, the same "needs manual reconciliation"
+    # situation.
+    notify_admins(
+        db, NotificationType.SYSTEM_ALERT, "Refund failed",
+        f"Refund {refund.id} for payment {refund.payment_id} (amount {refund.amount}) failed at the provider "
+        "and needs manual reconciliation.",
+        order_id=refund.order_id,
     )
     return _record(
         db, event_type="refund.failed", raw_body=raw_body, outcome="refund_marked_failed",

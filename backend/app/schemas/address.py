@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class AddressCreate(BaseModel):
@@ -20,6 +20,21 @@ class AddressCreate(BaseModel):
     formatted_address: str | None = Field(default=None, max_length=1000)
     place_id: str | None = Field(default=None, max_length=255)
     is_default: bool = False
+
+    # Maps & Location System Phase 13 — Delivery Location Validation.
+    # Coordinates are optional (manual address entry with no map pin must
+    # keep working, per Phase 2), but a lone latitude with no longitude
+    # (or vice versa) is never a valid state — it can only come from a
+    # partial/corrupted write, not a real pinned location. This is a
+    # whole-record create, so it's safe to enforce both-or-neither here;
+    # AddressUpdate deliberately does NOT get this same validator since a
+    # PATCH may legitimately touch just one field of an address that
+    # already has the other one set from before.
+    @model_validator(mode="after")
+    def _both_or_neither_coordinate(self) -> "AddressCreate":
+        if (self.latitude is None) != (self.longitude is None):
+            raise ValueError("Both latitude and longitude must be provided together, or neither.")
+        return self
 
 
 class AddressUpdate(BaseModel):

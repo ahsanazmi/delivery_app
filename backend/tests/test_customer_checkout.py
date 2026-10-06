@@ -55,18 +55,20 @@ def _restaurant(db, **overrides):
     return restaurant
 
 
-def _address(db, user):
-    address = Address(
-        user_id=user.id,
-        label="Home",
-        recipient_name="Customer",
-        phone="9999999999",
-        address_line="15 Market Road",
-        city="Bengaluru",
-        state="Karnataka",
-        postal_code="560001",
-        is_default=True,
-    )
+def _address(db, user, **overrides):
+    payload = {
+        "user_id": user.id,
+        "label": "Home",
+        "recipient_name": "Customer",
+        "phone": "9999999999",
+        "address_line": "15 Market Road",
+        "city": "Bengaluru",
+        "state": "Karnataka",
+        "postal_code": "560001",
+        "is_default": True,
+    }
+    payload.update(overrides)
+    address = Address(**payload)
     db.add(address)
     db.commit()
     return address
@@ -116,6 +118,54 @@ def test_validate_checkout_succeeds_when_everything_is_valid(db):
     assert result["total"] == Decimal("250.00")  # 220 subtotal + 30 delivery fee
 
 
+def test_validate_checkout_includes_restaurant_customer_distance_when_both_have_coordinates(db):
+    """Maps & Location System Phase 19 — Checkout Location Integration:
+    "Distance where appropriate." Server-computed, straight-line."""
+    user = _customer(db)
+    restaurant = _restaurant(db, latitude=Decimal("26.068"), longitude=Decimal("83.1836"))
+    product = Product(restaurant_id=restaurant.id, name="Biryani", price=Decimal("220.00"))
+    db.add(product)
+    db.commit()
+
+    cart = create_cart_for_user(db, user.id)
+    add_item(db, cart, product.id, 1)
+    address = _address(db, user, latitude=Decimal("26.0998"), longitude=Decimal("83.1991"))
+
+    result = checkout_service.validate_checkout(db, user, address.id)
+    assert result["distance_km"] is not None
+    assert result["distance_km"] > 0
+
+
+def test_validate_checkout_distance_is_none_when_the_address_has_no_coordinates(db):
+    user = _customer(db)
+    restaurant = _restaurant(db, latitude=Decimal("26.068"), longitude=Decimal("83.1836"))
+    product = Product(restaurant_id=restaurant.id, name="Biryani", price=Decimal("220.00"))
+    db.add(product)
+    db.commit()
+
+    cart = create_cart_for_user(db, user.id)
+    add_item(db, cart, product.id, 1)
+    address = _address(db, user)  # no latitude/longitude
+
+    result = checkout_service.validate_checkout(db, user, address.id)
+    assert result["distance_km"] is None
+
+
+def test_checkout_preview_includes_distance_for_the_first_saved_address(db):
+    user = _customer(db)
+    restaurant = _restaurant(db, latitude=Decimal("26.068"), longitude=Decimal("83.1836"))
+    product = Product(restaurant_id=restaurant.id, name="Biryani", price=Decimal("220.00"))
+    db.add(product)
+    db.commit()
+
+    cart = create_cart_for_user(db, user.id)
+    add_item(db, cart, product.id, 1)
+    _address(db, user, latitude=Decimal("26.0998"), longitude=Decimal("83.1991"))
+
+    preview = checkout_service.get_checkout_preview(db, user)
+    assert preview["distance_km"] is not None
+
+
 def test_validate_checkout_rejects_address_owned_by_another_customer(db):
     user = _customer(db, email="a@example.com")
     other_user = _customer(db, email="b@example.com")
@@ -152,7 +202,7 @@ def test_validate_checkout_rejects_address_outside_every_active_service_area(db)
 
     result = checkout_service.validate_checkout(db, user, address.id)
     assert result["valid"] is False
-    assert "We don't currently deliver to this address's area." in result["issues"]
+    assert "Delivery is currently unavailable at this location." in result["issues"]
 
 
 def test_validate_checkout_accepts_address_inside_an_active_service_area(db):
@@ -171,6 +221,45 @@ def test_validate_checkout_accepts_address_inside_an_active_service_area(db):
     db.commit()
     db.add(ServiceAreaPostalCode(service_area_id=zone.id, postal_code="560001"))
     db.commit()
+
+    result = checkout_service.validate_checkout(db, user, address.id)
+    assert result["valid"] is True
+    assert result["issues"] == []
+
+
+def test_validate_checkout_rejects_an_address_with_only_one_coordinate_set(db):
+    """Maps & Location System Phase 13 — Delivery Location Validation.
+    A lone latitude with no longitude can only come from a partial or
+    corrupted write (AddressCreate itself rejects this going forward) —
+    checkout still catches it defensively for any row that predates that
+    guard."""
+    user = _customer(db)
+    restaurant = _restaurant(db)
+    product = Product(restaurant_id=restaurant.id, name="Biryani", price=Decimal("220.00"))
+    db.add(product)
+    db.commit()
+
+    cart = create_cart_for_user(db, user.id)
+    add_item(db, cart, product.id, 1)
+    address = _address(db, user, latitude=Decimal("12.97"), longitude=None)
+
+    result = checkout_service.validate_checkout(db, user, address.id)
+    assert result["valid"] is False
+    assert "This address has an incomplete pinned location. Please update it on the map." in result["issues"]
+
+
+def test_validate_checkout_still_succeeds_when_address_has_no_coordinates_at_all(db):
+    """The standing guarantee from Phase 2 — manual address entry with no
+    map pin must keep working — still holds at checkout."""
+    user = _customer(db)
+    restaurant = _restaurant(db)
+    product = Product(restaurant_id=restaurant.id, name="Biryani", price=Decimal("220.00"))
+    db.add(product)
+    db.commit()
+
+    cart = create_cart_for_user(db, user.id)
+    add_item(db, cart, product.id, 1)
+    address = _address(db, user)  # no latitude/longitude at all
 
     result = checkout_service.validate_checkout(db, user, address.id)
     assert result["valid"] is True

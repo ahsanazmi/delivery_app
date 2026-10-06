@@ -1,5 +1,9 @@
 import { apiFetch } from "./apiClient";
 
+// Notifications & Communication System — hand-maintained mirror of the
+// backend's NotificationType enum (app/models/notification.py), the same
+// deliberate-sync discipline this codebase already applies to every other
+// Python/TypeScript boundary with no code-generation bridge between them.
 export type NotificationType =
   | "order_confirmed"
   | "order_preparing"
@@ -17,7 +21,12 @@ export type NotificationType =
   | "payment_update"
   | "earning_update"
   | "account_approved"
-  | "account_suspended";
+  | "account_suspended"
+  | "document_approved"
+  | "document_rejected"
+  | "cod_settlement_due"
+  // Notifications & Communication System Phase 22 — COD Notifications.
+  | "cod_pending";
 
 export type RiderNotification = {
   id: string;
@@ -25,12 +34,20 @@ export type RiderNotification = {
   title: string;
   body: string;
   order_id: string | null;
+  data: Record<string, string> | null;
   is_read: boolean;
   created_at: string;
+  read_at: string | null;
 };
 
 export function getRiderNotifications(accessToken: string) {
   return apiFetch<RiderNotification[]>("/api/v1/rider/notifications", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+}
+
+export function getUnreadRiderNotificationCount(accessToken: string) {
+  return apiFetch<{ unread_count: number }>("/api/v1/rider/notifications/unread-count", {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 }
@@ -52,6 +69,7 @@ export function markAllRiderNotificationsRead(accessToken: string) {
 export type PushTokenPayload = {
   token: string;
   platform?: "expo" | "ios" | "android";
+  device_identifier?: string;
 };
 
 export type PushTokenRecord = {
@@ -59,7 +77,11 @@ export type PushTokenRecord = {
   user_id: string;
   token: string;
   platform: string;
+  device_identifier: string | null;
+  is_active: boolean;
+  last_seen_at: string;
   created_at: string;
+  updated_at: string;
 };
 
 // Shared with every other portal's identical endpoint — a push token isn't

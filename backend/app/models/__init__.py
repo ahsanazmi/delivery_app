@@ -10,6 +10,7 @@ from app.models.delivery_assignment import AssignmentStatus, DeliveryAssignment
 from app.models.delivery_partner import ApprovalStatus, DeliveryPartner, VehicleType
 from app.models.favorite import Favorite
 from app.models.notification import Notification, NotificationType
+from app.models.notification_preference import NotificationPreference
 from app.models.order import Order, OrderItem, OrderStatus, OrderStatusHistory
 from app.models.payment import Payment, PaymentProvider, PaymentStatus
 from app.models.payment_attempt import PaymentAttempt
@@ -48,6 +49,7 @@ __all__ = [
     "Favorite",
     "Notification",
     "NotificationType",
+    "NotificationPreference",
     "Order",
     "OrderItem",
     "OrderStatus",

@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.order import OrderStatus
-from app.models.review import Review, ReviewTarget
+from app.models.review import Review, ReviewStatus, ReviewTarget
 from app.services.orders import get_user_order
 
 
@@ -26,10 +26,17 @@ def create_review(db: Session, *, user_id: UUID, target_type: ReviewTarget, targ
 
 
 def list_reviews_for_target(db: Session, *, target_type: ReviewTarget, target_id: str) -> list[Review]:
+    # Public, unauthenticated read path (app/api/v1/endpoints/reviews.py) — a
+    # HIDDEN/FLAGGED/REMOVED review must never surface here as if it were an
+    # ordinary PUBLISHED one.
     return list(
         db.scalars(
             select(Review)
-            .where(Review.target_type == target_type, Review.target_id == target_id)
+            .where(
+                Review.target_type == target_type,
+                Review.target_id == target_id,
+                Review.status == ReviewStatus.PUBLISHED,
+            )
             .order_by(Review.created_at.desc())
         )
     )

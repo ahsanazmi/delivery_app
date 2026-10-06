@@ -117,6 +117,26 @@ export async function startBackgroundLocationTracking(accessToken: string): Prom
   }
 }
 
+// Maps & Location System Phase 22 — Rider Location Permission's
+// "Background location unavailable" state, made checkable/readable
+// rather than only a silent no-op the way startBackgroundLocationTracking
+// above already behaves. Reports "unavailable" for exactly the same
+// reasons that function would silently do nothing: no expo-task-manager/
+// expo-location support in this runtime (Expo Go), foreground permission
+// not yet granted (background is meaningless without it), or background
+// permission itself not granted.
+export async function checkBackgroundLocationAvailability(): Promise<"available" | "unavailable"> {
+  const modules = await getModules();
+  if (!modules) return "unavailable";
+  const { Location } = modules;
+
+  const { status: foregroundStatus } = await Location.getForegroundPermissionsAsync();
+  if (foregroundStatus !== "granted") return "unavailable";
+
+  const { status: backgroundStatus } = await Location.getBackgroundPermissionsAsync();
+  return backgroundStatus === "granted" ? "available" : "unavailable";
+}
+
 export async function stopBackgroundLocationTracking(): Promise<void> {
   currentAccessToken = null;
 

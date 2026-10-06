@@ -313,3 +313,82 @@ def test_customer_order_endpoints_over_http():
     finally:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(engine)
+
+
+def test_editing_a_saved_address_after_placing_an_order_does_not_change_the_order():
+    """Maps & Location System Phase 12 — Order Delivery Address Snapshot.
+    The critical guarantee: once an order is placed, its delivery location
+    is frozen. Editing the customer's saved address afterward — through
+    the real PATCH /customer/addresses endpoint, the same one the app
+    itself uses — must never be reflected on an order already placed
+    against that address."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+
+    def override_get_db():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with Session(engine) as seed:
+            customer, restaurant, _ = _ordered_setup(seed)
+            address = create_address(seed, customer.id, {
+                "label": "Home",
+                "recipient_name": "Customer",
+                "phone": "9999999999",
+                "address_line": "15 Market Road",
+                "city": "Bengaluru",
+                "state": "Karnataka",
+                "postal_code": "560001",
+                "landmark": "Near bus stand",
+                "latitude": Decimal("12.9716"),
+                "longitude": Decimal("77.5946"),
+                "place_id": "N:original-111",
+            })
+            from app.core.security import create_access_token
+
+            token = create_access_token(customer.id)
+            address_id = address.id
+
+        with TestClient(app) as client:
+            headers = {"Authorization": f"Bearer {token}"}
+            create = client.post("/api/v1/customer/orders", headers=headers, json={"address_id": str(address_id)})
+            assert create.status_code == 201
+            order_id = create.json()["id"]
+            snapshotted = create.json()
+            assert snapshotted["address_line"] == "15 Market Road"
+            assert snapshotted["landmark"] == "Near bus stand"
+            assert Decimal(snapshotted["latitude"]) == Decimal("12.9716")
+            assert Decimal(snapshotted["longitude"]) == Decimal("77.5946")
+            assert snapshotted["place_id"] == "N:original-111"
+
+            # The customer moves — editing the very address the order was
+            # placed against, through the real customer-facing endpoint.
+            update = client.patch(
+                f"/api/v1/addresses/{address_id}",
+                headers=headers,
+                json={
+                    "address_line": "99 New Layout",
+                    "city": "Mumbai",
+                    "landmark": "Near the new mall",
+                    "latitude": 19.0760,
+                    "longitude": 72.8777,
+                    "place_id": "N:edited-999",
+                },
+            )
+            assert update.status_code == 200
+            assert update.json()["address_line"] == "99 New Layout"
+
+            detail = client.get(f"/api/v1/customer/orders/{order_id}", headers=headers)
+            assert detail.status_code == 200
+            unchanged = detail.json()
+            assert unchanged["address_line"] == "15 Market Road"
+            assert unchanged["city"] == "Bengaluru"
+            assert unchanged["landmark"] == "Near bus stand"
+            assert Decimal(unchanged["latitude"]) == Decimal("12.9716")
+            assert Decimal(unchanged["longitude"]) == Decimal("77.5946")
+            assert unchanged["place_id"] == "N:original-111"
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(engine)

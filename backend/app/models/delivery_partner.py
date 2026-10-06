@@ -1,8 +1,9 @@
 import enum
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -32,6 +33,10 @@ class DeliveryPartner(Base):
     status instead of needing a backfill migration."""
 
     __tablename__ = "delivery_partners"
+    __table_args__ = (
+        CheckConstraint("average_rating >= 0 AND average_rating <= 5", name="ck_delivery_partners_average_rating_range"),
+        CheckConstraint("total_ratings >= 0", name="ck_delivery_partners_total_ratings_nonnegative"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -60,6 +65,12 @@ class DeliveryPartner(Base):
     # (see update_rider_verification) — so a suspended rider can never be
     # left showing as online.
     is_online: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Reviews & Ratings Phase 6 — same shape as Restaurant.average_rating/
+    # total_ratings: kept in sync by the synchronous aggregation recompute
+    # (Phase 25-27) over this rider's PUBLISHED Review rows
+    # (Review.rider_id -> users.id -> this row's user_id).
+    average_rating: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=Decimal("0.00"), nullable=False)
+    total_ratings: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

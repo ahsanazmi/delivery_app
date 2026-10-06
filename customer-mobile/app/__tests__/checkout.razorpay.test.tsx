@@ -35,6 +35,18 @@ jest.mock("@/services/api/addressesApi", () => ({
   createAddress: jest.fn(),
 }));
 
+// Maps & Location System Phase 19 — checkout.tsx now renders
+// DeliveryLocationPreview (MapLibre), which can't render in Jest (no
+// native host) — same mock shape as RiderMap.test.tsx.
+jest.mock("@maplibre/maplibre-react-native", () => {
+  const { View } = require("react-native");
+  return {
+    Map: ({ children, ...props }: any) => <View testID="maplibre-map" {...props}>{children}</View>,
+    Camera: () => null,
+    Marker: ({ id, children }: any) => <View testID={`marker-${id}`}>{children}</View>,
+  };
+});
+
 const mockGetCheckout = jest.fn();
 const mockValidateOrder = jest.fn();
 jest.mock("@/services/api/checkoutApi", () => ({

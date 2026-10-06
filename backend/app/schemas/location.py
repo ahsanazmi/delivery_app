@@ -40,3 +40,25 @@ class ReverseGeocodeResponse(BaseModel):
     fill the address in by hand either way."""
 
     result: PlaceSearchResult | None
+
+
+class RouteResult(BaseModel):
+    """Maps & Location System Phase 17 — Routes Foundation. Real
+    road-network distance/duration between two points (as opposed to
+    LocationService.distance_km's straight-line estimate), via a
+    routing provider. distance_km/duration_minutes only — no turn-by-
+    turn geometry, since nothing built so far needs it and this phase
+    is explicitly a foundation, not turn-by-turn navigation."""
+
+    distance_km: float
+    duration_minutes: float
+
+
+class OrderRouteResponse(BaseModel):
+    """Maps & Location System Phase 20 — Restaurant → Customer Route.
+    `route` is None whenever either side has no pinned coordinates, or
+    OSRM found no road route between them — a legitimate negative
+    result, not an error (mirrors ReverseGeocodeResponse's own `result`
+    field above)."""
+
+    route: RouteResult | None

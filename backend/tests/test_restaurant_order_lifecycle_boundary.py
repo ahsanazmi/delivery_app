@@ -106,6 +106,7 @@ def test_restaurant_router_exposes_no_rider_stage_endpoints():
     assert paths == {
         "/orders",
         "/orders/{order_id}",
+        "/orders/{order_id}/route",  # Maps & Location System Phase 20 — read-only, not a rider-stage verb.
         "/orders/{order_id}/accept",
         "/orders/{order_id}/reject",
         "/orders/{order_id}/preparing",

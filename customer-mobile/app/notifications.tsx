@@ -1,4 +1,4 @@
-import { Redirect, useRouter } from "expo-router";
+import { Redirect, useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useSession } from "@/features/auth/session-context";
+import { getNotificationsModule } from "@/features/notifications/push-notifications";
 import { ApiError } from "@/services/api/apiClient";
 import {
     getNotifications,
@@ -28,6 +29,7 @@ const TYPE_ICON: Record<NotificationType, string> = {
   order_ready: "🍽️",
   rider_assigned: "🛵",
   order_picked_up: "🥡",
+  rider_approaching: "📍",
   order_out_for_delivery: "🚴",
   order_delivered: "📦",
   order_cancelled: "❌",
@@ -35,6 +37,11 @@ const TYPE_ICON: Record<NotificationType, string> = {
   payment_update: "💳",
   promotion: "🎁",
   system: "🔔",
+  payment_success: "💰",
+  refund_initiated: "↩️",
+  refund_completed: "✅",
+  cod_pending: "💵",
+  cod_collected: "💵",
 };
 
 export default function NotificationsScreen() {
@@ -59,8 +66,34 @@ export default function NotificationsScreen() {
     }
   }, [accessToken]);
 
+  // Expo Push Integration (Phase 16) — refresh whenever this screen gains
+  // focus (not just on first mount), so returning to it after backgrounding
+  // the app to receive a push always shows current data.
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load]),
+  );
+
+  // "notification receipt": a push that arrives while this screen is
+  // already open and focused (so the focus effect above won't re-fire)
+  // must still show up without the customer having to manually
+  // pull-to-refresh.
   useEffect(() => {
-    load();
+    let subscription: { remove: () => void } | undefined;
+    let cancelled = false;
+
+    void getNotificationsModule().then((Notifications) => {
+      if (!Notifications || cancelled) return;
+      subscription = Notifications.addNotificationReceivedListener(() => {
+        load();
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+    };
   }, [load]);
 
   function handleRefresh() {

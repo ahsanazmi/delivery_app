@@ -8,6 +8,7 @@ import { render, screen, waitFor } from "@testing-library/react-native";
 // re-center on a fresh rider position (not MapLibre's own internals),
 // stays covered.
 const mockEaseTo = jest.fn();
+const mockJumpTo = jest.fn();
 jest.mock("@maplibre/maplibre-react-native", () => {
   const { forwardRef, useImperativeHandle } = require("react");
   const { View } = require("react-native");
@@ -18,7 +19,7 @@ jest.mock("@maplibre/maplibre-react-native", () => {
       </View>
     ),
     Camera: forwardRef((_props: any, ref: any) => {
-      useImperativeHandle(ref, () => ({ easeTo: mockEaseTo, jumpTo: jest.fn(), flyTo: jest.fn() }));
+      useImperativeHandle(ref, () => ({ easeTo: mockEaseTo, jumpTo: mockJumpTo, flyTo: jest.fn() }));
       return null;
     }),
     Marker: ({ id, children }: any) => <View testID={`marker-${id}`}>{children}</View>,
@@ -30,6 +31,7 @@ import { RiderMap } from "./RiderMap";
 describe("RiderMap — Live Rider Location Tracking", () => {
   beforeEach(() => {
     mockEaseTo.mockReset();
+    mockJumpTo.mockReset();
   });
 
   it("shows a waiting placeholder, not a blank/crashed map, when no location is known yet", () => {
@@ -61,6 +63,17 @@ describe("RiderMap — Live Rider Location Tracking", () => {
     expect(screen.getByTestId("marker-delivery")).toBeTruthy();
   });
 
+  it("also renders a distinct restaurant marker when it's known (Phase 17)", () => {
+    render(
+      <RiderMap
+        riderLocation={{ latitude: 26.068, longitude: 83.1836 }}
+        restaurantLocation={{ latitude: 26.05, longitude: 83.17 }}
+        deliveryLocation={{ latitude: 26.07, longitude: 83.19 }}
+      />,
+    );
+    expect(screen.getByTestId("marker-restaurant")).toBeTruthy();
+  });
+
   it("still renders the map centered on the destination even before the rider has reported a position", () => {
     render(
       <RiderMap
@@ -73,19 +86,52 @@ describe("RiderMap — Live Rider Location Tracking", () => {
     expect(screen.getByTestId("marker-delivery")).toBeTruthy();
   });
 
-  it("eases the camera to the rider's new position whenever a fresh location arrives — the actual 'moving marker without refreshing' mechanism", async () => {
+  it("jumps (not eases) to the very first position this map ever shows — nothing to smoothly transition from yet", async () => {
+    render(<RiderMap riderLocation={{ latitude: 26.068, longitude: 83.1836 }} deliveryLocation={null} />);
+    await waitFor(() => expect(mockJumpTo).toHaveBeenCalledWith(expect.objectContaining({ center: [83.1836, 26.068] })));
+    expect(mockEaseTo).not.toHaveBeenCalled();
+  });
+
+  it("eases the camera to the rider's new position for a normal, small movement (Phase 18)", async () => {
     const { rerender } = render(
-      <RiderMap riderLocation={{ latitude: 26.068, longitude: 83.1836 }} deliveryLocation={null} />,
+      <RiderMap riderLocation={{ latitude: 26.068, longitude: 83.1836 }} riderLocationState="live" deliveryLocation={null} />,
     );
-    await waitFor(() =>
-      expect(mockEaseTo).toHaveBeenLastCalledWith(expect.objectContaining({ center: [83.1836, 26.068] })),
-    );
+    await waitFor(() => expect(mockJumpTo).toHaveBeenCalledTimes(1));
 
-    rerender(<RiderMap riderLocation={{ latitude: 26.07, longitude: 83.19 }} deliveryLocation={null} />);
+    // ~1km away — a normal update, not a jump.
+    rerender(<RiderMap riderLocation={{ latitude: 26.077, longitude: 83.1836 }} riderLocationState="live" deliveryLocation={null} />);
 
     await waitFor(() =>
-      expect(mockEaseTo).toHaveBeenLastCalledWith(expect.objectContaining({ center: [83.19, 26.07] })),
+      expect(mockEaseTo).toHaveBeenLastCalledWith(expect.objectContaining({ center: [83.1836, 26.077] })),
     );
+  });
+
+  it("jumps instantly, never eases, across a major GPS correction (Phase 18 — do not fake a path the rider never drove)", async () => {
+    const { rerender } = render(
+      <RiderMap riderLocation={{ latitude: 26.068, longitude: 83.1836 }} riderLocationState="live" deliveryLocation={null} />,
+    );
+    await waitFor(() => expect(mockJumpTo).toHaveBeenCalledTimes(1));
+
+    // ~1150km away (Delhi-ish) — a correction, not continuous travel.
+    rerender(<RiderMap riderLocation={{ latitude: 28.6139, longitude: 77.209 }} riderLocationState="live" deliveryLocation={null} />);
+
+    await waitFor(() => expect(mockJumpTo).toHaveBeenCalledTimes(2));
+    expect(mockEaseTo).not.toHaveBeenCalled();
+  });
+
+  it("never moves the camera at all in response to a stale or offline position (Phase 18/19)", async () => {
+    const { rerender } = render(
+      <RiderMap riderLocation={{ latitude: 26.068, longitude: 83.1836 }} riderLocationState="live" deliveryLocation={null} />,
+    );
+    await waitFor(() => expect(mockJumpTo).toHaveBeenCalledTimes(1));
+    mockJumpTo.mockClear();
+    mockEaseTo.mockClear();
+
+    rerender(<RiderMap riderLocation={{ latitude: 26.2, longitude: 83.3 }} riderLocationState="stale" deliveryLocation={null} />);
+    rerender(<RiderMap riderLocation={{ latitude: 26.3, longitude: 83.4 }} riderLocationState="offline" deliveryLocation={null} />);
+
+    expect(mockJumpTo).not.toHaveBeenCalled();
+    expect(mockEaseTo).not.toHaveBeenCalled();
   });
 
   it("shows the required CARTO/OpenStreetMap attribution whenever the map itself renders", () => {

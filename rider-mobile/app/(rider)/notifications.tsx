@@ -1,10 +1,11 @@
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { SkeletonCard } from "@/components/SkeletonBlock";
+import { getNotificationsModule } from "@/features/notifications/push-notifications";
 import { useThemeColors } from "@/hooks/use-theme-colors";
 import {
   getRiderNotifications,
@@ -22,6 +23,10 @@ const TYPE_ICON: Record<string, string> = {
   earning_update: "💰",
   account_approved: "✓",
   account_suspended: "⛔",
+  document_approved: "✓",
+  document_rejected: "⚠️",
+  cod_settlement_due: "💵",
+  cod_pending: "💵",
   system: "🔔",
 };
 
@@ -45,8 +50,24 @@ function destinationFor(notification: RiderNotification): { pathname: string; pa
   if (notification.type === "delivery_cancelled" && notification.order_id) {
     return { pathname: "/delivery/[id]", params: { id: notification.order_id } };
   }
+  // A delivery that was updated by being reassigned away is no longer
+  // this rider's to view — get_rider_delivery_or_404 scopes strictly to
+  // Order.rider_id == this rider, so /delivery/[id] would just 404 for
+  // them now. The dashboard (their current, actually-theirs deliveries)
+  // is the correct landing spot, same as a fresh new_delivery alert.
+  if (notification.type === "delivery_updated") return { pathname: "/" };
   if (notification.type === "account_approved" || notification.type === "account_suspended") {
     return { pathname: "/verification" };
+  }
+  if (notification.type === "document_approved" || notification.type === "document_rejected") {
+    return { pathname: "/verification" };
+  }
+  if (notification.type === "cod_settlement_due") return { pathname: "/wallet" };
+  // "Collect cash for this order" needs the order itself, not the wallet
+  // (that's for settlement — a different concept, see cod_settlement_due
+  // above).
+  if (notification.type === "cod_pending" && notification.order_id) {
+    return { pathname: "/delivery/[id]", params: { id: notification.order_id } };
   }
   return null;
 }
@@ -85,6 +106,27 @@ export default function RiderNotificationsScreen() {
       void load();
     }, [load]),
   );
+
+  // Expo Push Integration (Phase 16) — "notification receipt": a push
+  // that arrives while this screen is already open and focused (so
+  // useFocusEffect above won't re-fire) must still show up without the
+  // rider having to manually pull-to-refresh.
+  useEffect(() => {
+    let subscription: { remove: () => void } | undefined;
+    let cancelled = false;
+
+    void getNotificationsModule().then((Notifications) => {
+      if (!Notifications || cancelled) return;
+      subscription = Notifications.addNotificationReceivedListener(() => {
+        void load();
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+    };
+  }, [load]);
 
   async function handlePress(notification: RiderNotification) {
     if (!accessToken) return;

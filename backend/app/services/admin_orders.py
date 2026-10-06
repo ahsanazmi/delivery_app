@@ -10,6 +10,7 @@ from app.models.user import User
 from app.schemas.admin import AdminOrderDetail, AdminOrderListResponse, AdminOrderSummary
 from app.schemas.order import OrderItemRead, OrderStatusHistoryRead
 from app.services.service_areas import get_service_area_for_postal_code
+from app.services.tracking_snapshot import LOCATION_VISIBLE_STATUSES
 
 
 def _riders_by_id(db: Session, rider_ids: list[UUID]) -> dict[UUID, User]:
@@ -95,6 +96,15 @@ def get_admin_order_detail(db: Session, order_id: UUID) -> AdminOrderDetail:
     summary = _to_summary(order, rider)
     sorted_history = sorted(order.status_history, key=lambda entry: entry.created_at)
     service_area = get_service_area_for_postal_code(db, order.postal_code)
+
+    # Live Rider Tracking Phase 27 — same time-boxed visibility the
+    # customer's own tracking view uses, not a separate, looser rule.
+    rider_latitude = rider_longitude = rider_location_updated_at = None
+    if order.status in LOCATION_VISIBLE_STATUSES and rider is not None and rider.current_latitude is not None:
+        rider_latitude = rider.current_latitude
+        rider_longitude = rider.current_longitude
+        rider_location_updated_at = rider.location_updated_at
+
     return AdminOrderDetail(
         **summary.model_dump(),
         customer_email=order.customer_email,
@@ -108,8 +118,12 @@ def get_admin_order_detail(db: Session, order_id: UUID) -> AdminOrderDetail:
         landmark=order.landmark,
         latitude=order.latitude,
         longitude=order.longitude,
+        place_id=order.place_id,
         service_area_zone_name=service_area.zone_name if service_area else None,
         service_area_city=service_area.city if service_area else None,
+        rider_latitude=rider_latitude,
+        rider_longitude=rider_longitude,
+        rider_location_updated_at=rider_location_updated_at,
         items=[OrderItemRead.model_validate(item) for item in order.items],
         status_history=[OrderStatusHistoryRead.model_validate(entry) for entry in sorted_history],
     )

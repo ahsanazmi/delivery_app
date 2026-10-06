@@ -106,15 +106,15 @@ def test_customer_cannot_access_another_customers_address_over_http():
 
         with TestClient(app) as client:
             headers = {"Authorization": f"Bearer {other_token}"}
-            get_resp = client.get(f"/api/v1/customer/addresses/{address_id}", headers=headers)
+            get_resp = client.get(f"/api/v1/addresses/{address_id}", headers=headers)
             assert get_resp.status_code == 404
 
             patch_resp = client.patch(
-                f"/api/v1/customer/addresses/{address_id}", headers=headers, json={"label": "Hacked"}
+                f"/api/v1/addresses/{address_id}", headers=headers, json={"label": "Hacked"}
             )
             assert patch_resp.status_code == 404
 
-            delete_resp = client.delete(f"/api/v1/customer/addresses/{address_id}", headers=headers)
+            delete_resp = client.delete(f"/api/v1/addresses/{address_id}", headers=headers)
             assert delete_resp.status_code == 404
     finally:
         _teardown(engine)

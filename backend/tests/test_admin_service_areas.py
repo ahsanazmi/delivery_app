@@ -291,6 +291,25 @@ def test_order_placement_blocked_for_uncovered_postal_code(engine):
         assert response.status_code == 422
 
 
+def test_order_placement_blocked_for_uncovered_postal_code_returns_the_specified_message(engine):
+    """Maps & Location System Phase 15 — Delivery Eligibility. Order
+    creation is rejected with this exact message regardless of whether
+    the customer's app ever showed this restaurant as orderable —
+    eligibility is decided here, authoritatively, not by the frontend."""
+    with Session(engine) as seed:
+        scenario = _seed_order_placement_scenario(seed, postal_code="777777")
+
+    admin_headers = _admin_headers_for_engine(engine)
+    with TestClient(app) as client:
+        client.post(
+            "/api/v1/admin/service-areas", headers=admin_headers,
+            json={"city": "Covered City", "zone_name": "Zone", "postal_codes": ["888888"]},
+        )
+        response = _place_order(client, scenario)
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Delivery is currently unavailable at this location."
+
+
 def test_order_placement_succeeds_for_covered_and_active_postal_code(engine):
     with Session(engine) as seed:
         scenario = _seed_order_placement_scenario(seed, postal_code="333333")

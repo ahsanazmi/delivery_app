@@ -28,7 +28,7 @@ def _make_user(client, role: UserRole, email: str, phone: str) -> str:
 CUSTOMER_GET_ENDPOINTS = [
     "/api/v1/customer/orders",
     "/api/v1/customer/profile",
-    "/api/v1/customer/addresses",
+    "/api/v1/addresses",
     "/api/v1/customer/favorites",
     "/api/v1/customer/cart",
     "/api/v1/customer/coupons",

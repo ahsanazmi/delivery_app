@@ -186,7 +186,7 @@ def test_complete_razorpay_flow_every_record_consistent(engine, monkeypatch):
         # STAGE 1 — Customer -> Checkout -> Online Payment (Order placed)
         # =====================================================================
         address = client.post(
-            "/api/v1/customer/addresses", headers=customer_headers,
+            "/api/v1/addresses", headers=customer_headers,
             json={
                 "label": "Home", "recipient_name": "Customer P34", "phone": "9800000010",
                 "address_line": "1 MG Road", "city": "Bengaluru", "state": "Karnataka", "postal_code": "560001",

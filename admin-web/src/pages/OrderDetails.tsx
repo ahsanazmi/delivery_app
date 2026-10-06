@@ -6,6 +6,7 @@ import { useConfirm } from "@/components/dialog/ConfirmProvider";
 import { useToast } from "@/components/toast/ToastProvider";
 import { LoadingIndicator } from "@/components/LoadingIndicator";
 import { useSession } from "@/features/auth/session-context";
+import { LocationMap } from "@/features/location/LocationMap";
 import { ApiError } from "@/services/api/apiClient";
 import {
   cancelAdminOrder,
@@ -167,6 +168,33 @@ export default function OrderDetails() {
           <div className="value" style={{ fontSize: 16 }}>{new Date(order.created_at).toLocaleString()}</div>
         </div>
       </div>
+
+      {/* Maps & Location System Phase 11 — Admin Location Visibility:
+          "Customer delivery location... where operationally appropriate."
+          Deliberately its own section, opened only when this specific
+          order is inspected — never on the order list — the same
+          least-privilege boundary the backend enforces (AdminOrderSummary
+          never carries these fields). */}
+      <h2 className="section-title">Delivery location</h2>
+      <div className="stats-grid">
+        <div className="stat-card" style={{ gridColumn: "1 / -1" }}>
+          <div className="label">Address</div>
+          <div className="value" style={{ fontSize: 13 }}>
+            {order.address_line}, {order.city}
+            {order.state ? `, ${order.state}` : ""} {order.postal_code}
+            {order.landmark ? ` (near ${order.landmark})` : ""}
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="label">Service area</div>
+          <div className="value" style={{ fontSize: 16 }}>
+            {order.service_area_zone_name ? `${order.service_area_zone_name} (${order.service_area_city})` : "Not in a configured zone"}
+          </div>
+        </div>
+      </div>
+      {order.latitude != null && order.longitude != null && (
+        <LocationMap latitude={Number(order.latitude)} longitude={Number(order.longitude)} markerColor="#157347" />
+      )}
 
       <h2 className="section-title">Items</h2>
       {order.items.length === 0 ? (

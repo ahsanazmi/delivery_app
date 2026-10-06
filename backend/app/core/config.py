@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_ID: str = ""
     RAZORPAY_KEY_SECRET: str = ""
     RAZORPAY_WEBHOOK_SECRET: str = ""
+    # Push Notification Service (Phase 17) — optional. Expo's push API
+    # works with no credential at all (the default, unset); setting this
+    # only raises Expo's own rate limits and ties usage to this project's
+    # Expo account (https://docs.expo.dev/push-notifications/sending-
+    # notifications/#additional-security). Never required for local dev.
+    EXPO_ACCESS_TOKEN: str = ""
     # Maps & Location System Phase 9/8 — Forward Geocoding / Address
     # Search and Reverse Geocoding. Photon (komoot's open-source OSM
     # geocoder) rather than Google Places/Geocoding — no API key at all,
@@ -56,6 +62,18 @@ class Settings(BaseSettings):
     # different Nominatim-compatible provider's root URL, to swap
     # providers without any code change.
     PHOTON_API_BASE_URL: str = "https://photon.komoot.io"
+    # Maps & Location System Phase 17 — Routes Foundation. Free/open-source
+    # routing (OSRM — Open Source Routing Machine), not Google Routes API,
+    # for the same reason Photon was chosen over Google Places: no paid
+    # key, consistent with every other location decision on this platform.
+    # This is project-osrm.org's own public demo server — no API key
+    # needed, but it documents a 1 request/second limit (see routing.py's
+    # own throttle) and its usage policy restricts it to non-commercial
+    # use; a production deployment of this platform should point this at
+    # a self-hosted OSRM instance instead (a regional OSM extract, not the
+    # whole planet, keeps this practical to run). Swappable via this one
+    # setting, same pattern as PHOTON_API_BASE_URL above.
+    OSRM_API_BASE_URL: str = "https://router.project-osrm.org"
     # Comma-separated list of browser origins allowed to call this API (the two
     # Vite web apps, both hostname spellings since browsers treat localhost and
     # 127.0.0.1 as different origins). 5180 is included because admin-web's
@@ -66,6 +84,57 @@ class Settings(BaseSettings):
         "http://localhost:5173,http://localhost:5174,http://localhost:5180,"
         "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5180"
     )
+
+    # Live Rider Tracking Phase 7 — Location Update Throttling. Previously
+    # hardcoded in app/services/rider_location.py; moved here so every
+    # tunable governing how often/how-much a rider's GPS updates are
+    # accepted lives in one configurable place, not scattered as magic
+    # numbers through the application.
+    RIDER_LOCATION_MIN_INTERVAL_SECONDS: int = 10
+    # A new history row is written once EITHER this much time OR this much
+    # straight-line movement (in meters) has happened since the last stored
+    # point, whichever comes first — the same "time OR distance" pattern
+    # rider-mobile's own background-location task already uses. The
+    # fast-path "current position" cache on User always updates regardless
+    # of either threshold; only the durable history ledger is throttled.
+    RIDER_LOCATION_MIN_MOVEMENT_METERS: float = 15.0
+    # A reported accuracy worse (larger) than this, in meters, is treated as
+    # unreliable *only* in combination with an implausible implied-speed
+    # jump (see RIDER_LOCATION_MAX_PLAUSIBLE_SPEED_MPS) — Live Rider
+    # Tracking Phase 8's own instruction is to "keep filtering
+    # conservative," so poor accuracy alone, from an otherwise normal
+    # point, is never rejected on its own.
+    RIDER_LOCATION_MAX_ACCEPTED_ACCURACY_METERS: float = 100.0
+    # ~200 km/h — well above any real delivery vehicle, deliberately loose
+    # so ordinary traffic/highway movement is never mistaken for an
+    # impossible GPS jump. Combined with the accuracy threshold above (both
+    # conditions must hold) before a point is rejected.
+    RIDER_LOCATION_MAX_PLAUSIBLE_SPEED_MPS: float = 55.0
+    # A client-reported location captured_at further in the past or future
+    # than these bounds is treated as an invalid timestamp and the whole
+    # update is rejected — a device clock can be wrong, but not wrong by
+    # this much without something being genuinely broken.
+    RIDER_LOCATION_MAX_TIMESTAMP_AGE_SECONDS: int = 3600
+    RIDER_LOCATION_MAX_TIMESTAMP_FUTURE_SECONDS: int = 60
+    # Live Rider Tracking Phase 5/19 — thresholds for the LIVE/STALE/OFFLINE
+    # state a rider's last-known position is classified into, documented in
+    # docs/live-tracking-architecture.md §5.
+    RIDER_LOCATION_STALE_AFTER_SECONDS: int = 30
+    RIDER_LOCATION_OFFLINE_AFTER_SECONDS: int = 120
+    # Live Rider Tracking Phase 22/24 — Live ETA refresh strategy. A live
+    # ETA is only recalculated (a real OSRM call) once the rider has moved
+    # this far, OR this much time has passed, since the last calculation
+    # for that order — never on every single GPS ping. See
+    # docs/live-tracking-architecture.md §10.
+    LIVE_ETA_MIN_REFRESH_SECONDS: int = 60
+    LIVE_ETA_MIN_MOVEMENT_METERS: float = 300.0
+    # Live Rider Tracking Phase 34 — Notification Integration. "Rider is
+    # approaching" fires once a rider on the OUT_FOR_DELIVERY leg comes
+    # within this straight-line distance of the delivery address — a
+    # customer-facing heads-up, not a precision ETA (that's live_eta's
+    # job), so the simple/cheap distance_km estimate is intentional here
+    # rather than a route-based (OSRM) distance.
+    RIDER_APPROACHING_DISTANCE_KM: float = 0.5
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -6,7 +6,7 @@ import { getNotificationsModule, registerForPushNotifications } from "./push-not
 
 type AppRouter = ReturnType<typeof useRouter>;
 
-function handleDeepLink(router: AppRouter, data: Record<string, unknown> | undefined) {
+export function handleDeepLink(router: AppRouter, data: Record<string, unknown> | undefined) {
   if (!data) return;
   const orderId = typeof data.order_id === "string" ? data.order_id : null;
 
@@ -22,9 +22,24 @@ function handleDeepLink(router: AppRouter, data: Record<string, unknown> | undef
       if (orderId) router.push({ pathname: "/delivery/[id]", params: { id: orderId } });
       else router.push("/");
       break;
+    // Notifications & Communication System Phase 22 — COD Notifications.
+    case "cod_collection_required":
+      if (orderId) router.push({ pathname: "/delivery/[id]", params: { id: orderId } });
+      else router.push("/");
+      break;
     case "account_approved":
     case "account_suspended":
+    case "document_approved":
+    case "document_rejected":
       router.push("/verification");
+      break;
+    // Deep Linking (Phase 27) — kept in parity with this screen's own
+    // in-app list routing (destinationFor() in app/(rider)/
+    // notifications.tsx) so a tap lands on the same screen whichever way
+    // the rider reached it: live push tap, or browsing their own
+    // notification history later.
+    case "cod_settlement_due":
+      router.push("/wallet");
       break;
     default:
       router.push("/");

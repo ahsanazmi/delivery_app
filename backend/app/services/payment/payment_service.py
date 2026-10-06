@@ -26,7 +26,13 @@ from app.models.payment import PaymentProvider as PaymentProviderEnum
 from app.models.payment import PaymentStatus
 from app.models.payment_attempt import PaymentAttempt
 from app.models.refund import Refund
-from app.services.notifications import notify_admins, notify_customer_payment_failed
+from app.services.notifications import (
+    notify_admins,
+    notify_customer_payment_failed,
+    notify_customer_payment_success,
+    notify_restaurant_payment_confirmed,
+    notify_restaurant_payment_issue,
+)
 from app.services.payment import refund_service
 from app.services.payment.exceptions import (
     PaymentError,
@@ -368,6 +374,10 @@ class PaymentService:
                 notify_customer_payment_failed(
                     db, user_id=payment.user_id, order_id=payment.order_id, order_number=order.order_number
                 )
+                # Notifications & Communication System Phase 12 — the
+                # restaurant's own side of the same failure: it affects
+                # whether they should actually fulfil this order.
+                notify_restaurant_payment_issue(db, order)
             db.commit()
             raise PaymentVerificationError(failure_message or "Payment verification failed.")
 
@@ -424,6 +434,14 @@ class PaymentService:
         if order:
             order.payment_status = "paid"
             order.is_paid = True
+            # Notifications & Communication System Phase 19 — the
+            # restaurant's own side of this same event: for a razorpay
+            # order, this is the moment it actually becomes visible in
+            # their pending queue (see restaurant_dashboard.py's own
+            # payment_confirmed filter), not merely informational.
+            notify_restaurant_payment_confirmed(db, order)
+
+        notify_customer_payment_success(db, payment)
 
         db.commit()
         db.refresh(payment)

@@ -103,6 +103,19 @@ def test_tracking_shows_rider_once_assigned(db):
     assert tracking["order_status"] == OrderStatus.RIDER_ASSIGNED
 
 
+def test_tracking_includes_the_restaurant_location(db):
+    """Live Rider Tracking Phase 17 — Customer Live Map: the tracking
+    snapshot didn't previously surface the restaurant's own location at
+    all (only the rider and the delivery destination)."""
+    customer = _customer(db)
+    restaurant = _restaurant(db)
+    order = _place_order(db, customer, restaurant)
+
+    tracking = get_order_tracking(db, customer.id, order.id)
+    assert tracking["restaurant_latitude"] == pytest.approx(12.1)
+    assert tracking["restaurant_longitude"] == pytest.approx(77.1)
+
+
 def test_rider_location_hidden_before_rider_assigned(db):
     customer = _customer(db)
     restaurant = _restaurant(db)
@@ -142,6 +155,36 @@ def test_rider_location_visible_once_assigned_and_reported(db):
     assert tracking["rider_location"] is not None
     assert tracking["rider_location"]["latitude"] == pytest.approx(12.97)
     assert tracking["rider_location"]["longitude"] == pytest.approx(77.59)
+
+
+def test_tracking_uses_a_live_route_based_eta_once_the_rider_and_delivery_coordinates_are_both_known(db, monkeypatch):
+    """Live Rider Tracking Phase 22 — an integration-level proof (through
+    the real get_order_tracking call, not just eta.py in isolation) that
+    a live ETA is actually wired into the tracking snapshot, still
+    without ever depending on OSRM's real availability — location_service
+    .route() is mocked here exactly like test_live_eta.py mocks it."""
+    from unittest.mock import MagicMock
+
+    from app.schemas.location import RouteResult
+    from app.services import eta as eta_module
+
+    monkeypatch.setattr(eta_module.location_service, "route", MagicMock(return_value=RouteResult(distance_km=4.3, duration_minutes=9.0)))
+
+    customer = _customer(db)
+    restaurant = _restaurant(db)
+    order = _place_order(db, customer, restaurant)
+    order.latitude = Decimal("12.9800")
+    order.longitude = Decimal("77.6000")
+    db.commit()
+    rider = User(name="Rider Bob", email="live-eta-rider@example.com", password_hash="x", role=UserRole.RIDER, phone="8888888899")
+    db.add(rider)
+    db.commit()
+    transition_order_status(db, order, OrderStatus.CONFIRMED)
+    assign_rider_to_order(db, order, rider.id)
+    update_rider_location(db, rider, Decimal("12.9700"), Decimal("77.5900"))
+
+    tracking = get_order_tracking(db, customer.id, order.id)
+    assert tracking["eta_source"] == "live"
 
 
 def test_rider_location_hidden_again_after_delivery(db):
@@ -222,6 +265,84 @@ def test_tracking_endpoint_over_http():
                 f"/api/v1/customer/orders/{order_id}/tracking", headers={"Authorization": f"Bearer {other_token}"}
             )
             assert forbidden.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(engine)
+
+
+def test_tracking_endpoint_is_rate_limited_per_customer():
+    """Live Rider Tracking Phase 33 — Fallback Polling must itself be rate
+    limited, since it's the exact endpoint the client's REST-polling
+    fallback hits while its WebSocket is down. Phase 35 changed the key
+    from the default path+IP to an explicit per-customer key (see
+    rate_limit()'s own docstring) — this still proves the limit bites."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+
+    def override_get_db():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with Session(engine) as seed:
+            customer = _customer(seed)
+            restaurant = _restaurant(seed)
+            order = _place_order(seed, customer, restaurant)
+            order_id = order.id
+            from app.core.security import create_access_token
+
+            token = create_access_token(customer.id)
+
+        with TestClient(app) as client:
+            headers = {"Authorization": f"Bearer {token}"}
+            for _ in range(30):
+                assert client.get(f"/api/v1/customer/orders/{order_id}/tracking", headers=headers).status_code == 200
+
+            assert client.get(f"/api/v1/customer/orders/{order_id}/tracking", headers=headers).status_code == 429
+    finally:
+        app.dependency_overrides.clear()
+        Base.metadata.drop_all(engine)
+
+
+def test_tracking_rate_limit_is_shared_across_a_customers_own_orders_not_per_order():
+    """Live Rider Tracking Phase 35 — Performance/Scalability. The default
+    rate_limit() key embeds request.url.path, which for this endpoint
+    includes the order_id — using it unmodified would give every distinct
+    order its own permanent, never-evicted budget (an unbounded memory
+    leak over the server's lifetime) and would let a customer bypass the
+    limit entirely just by spreading requests across several orders. The
+    explicit per-customer key fixes both: two orders for the same
+    customer must share one combined budget."""
+    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+
+    def override_get_db():
+        with Session(engine) as session:
+            yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with Session(engine) as seed:
+            customer = _customer(seed)
+            restaurant = _restaurant(seed)
+            order_a = _place_order(seed, customer, restaurant)
+            order_b = _place_order(seed, customer, restaurant)
+            order_a_id, order_b_id = order_a.id, order_b.id
+            from app.core.security import create_access_token
+
+            token = create_access_token(customer.id)
+
+        with TestClient(app) as client:
+            headers = {"Authorization": f"Bearer {token}"}
+            for _ in range(15):
+                assert client.get(f"/api/v1/customer/orders/{order_a_id}/tracking", headers=headers).status_code == 200
+            for _ in range(15):
+                assert client.get(f"/api/v1/customer/orders/{order_b_id}/tracking", headers=headers).status_code == 200
+
+            # 30 total across the two orders already used the shared budget up.
+            assert client.get(f"/api/v1/customer/orders/{order_a_id}/tracking", headers=headers).status_code == 429
+            assert client.get(f"/api/v1/customer/orders/{order_b_id}/tracking", headers=headers).status_code == 429
     finally:
         app.dependency_overrides.clear()
         Base.metadata.drop_all(engine)

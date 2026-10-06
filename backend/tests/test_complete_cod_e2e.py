@@ -128,7 +128,7 @@ def test_complete_cod_flow_every_database_record_verified(engine):
         # STAGE 1 — Customer -> COD Checkout -> Order
         # =====================================================================
         address = client.post(
-            "/api/v1/customer/addresses", headers=customer_headers,
+            "/api/v1/addresses", headers=customer_headers,
             json={
                 "label": "Home", "recipient_name": "Customer P33", "phone": "9700000010",
                 "address_line": "1 MG Road", "city": "Bengaluru", "state": "Karnataka", "postal_code": "560001",

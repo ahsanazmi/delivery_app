@@ -27,9 +27,28 @@ from decimal import Decimal
 import httpx
 
 from app.core.config import settings
+from app.core.ttl_cache import TTLCache
 from app.schemas.location import PlaceSearchResult
 
 logger = logging.getLogger(__name__)
+
+# Maps & Location System Phase 27 — Map Billing & Quota Safety. A repeat
+# search for the same query text, or a repeat reverse-geocode of the same
+# (rounded) coordinate, is answered from cache instead of hitting Photon
+# again — a real, common case (popular place names, a customer nudging a
+# map pin by a few centimeters and re-confirming) that would otherwise
+# cost another call against the shared, rate-limited free instance for no
+# new information. 5 minutes: long enough to absorb realistic repeat
+# traffic, short enough that this is never mistaken for a durable cache
+# of place data.
+_SEARCH_CACHE_TTL_SECONDS = 300
+_search_cache: TTLCache[str, list[PlaceSearchResult]] = TTLCache(ttl_seconds=_SEARCH_CACHE_TTL_SECONDS)
+_reverse_cache: TTLCache[tuple[str, str], "PlaceSearchResult | None"] = TTLCache(ttl_seconds=_SEARCH_CACHE_TTL_SECONDS)
+# ~1.1m at the equator — coordinates this close together are effectively
+# the same point for reverse-geocoding purposes (the same building/road),
+# so rounding here is what actually makes repeat-pin-confirmation cache
+# hits possible at all.
+_REVERSE_CACHE_COORDINATE_PRECISION = 5
 
 # A small safety margin over Photon's own documented 1 req/s limit.
 _MIN_SECONDS_BETWEEN_REQUESTS = 1.1
@@ -146,6 +165,11 @@ def search_places(query: str, *, limit: int = 6) -> list[PlaceSearchResult]:
     if len(query) < 2:
         return []
 
+    cache_key = f"{query.lower()}|{limit}"
+    hit, cached = _search_cache.get(cache_key)
+    if hit:
+        return cached
+
     body = _call_photon("/api/", {"q": query, "limit": limit})
 
     results = []
@@ -153,6 +177,7 @@ def search_places(query: str, *, limit: int = 6) -> list[PlaceSearchResult]:
         result = _to_result(feature)
         if result is not None:
             results.append(result)
+    _search_cache.set(cache_key, results)
     return results
 
 
@@ -163,9 +188,17 @@ def reverse_geocode(latitude: Decimal, longitude: Decimal) -> PlaceSearchResult 
     client supplied itself; either a real Photon-derived result, or
     None if nothing was found there (a customer can still fill the
     address in by hand either way — this never blocks saving)."""
+    cache_key = (
+        format(round(latitude, _REVERSE_CACHE_COORDINATE_PRECISION), "f"),
+        format(round(longitude, _REVERSE_CACHE_COORDINATE_PRECISION), "f"),
+    )
+    hit, cached = _reverse_cache.get(cache_key)
+    if hit:
+        return cached
+
     body = _call_photon("/reverse", {"lat": str(latitude), "lon": str(longitude)})
 
     features = body.get("features", [])
-    if not features:
-        return None
-    return _to_result(features[0])
+    result = _to_result(features[0]) if features else None
+    _reverse_cache.set(cache_key, result)
+    return result

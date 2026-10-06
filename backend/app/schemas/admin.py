@@ -338,11 +338,24 @@ class AdminOrderDetail(AdminOrderSummary):
     landmark: str | None
     latitude: Decimal | None
     longitude: Decimal | None
+    # Maps & Location System Phase 12 — the immutable snapshot's opaque
+    # place identifier, carried through for parity with the rest of the
+    # location fields above (all snapshotted once at order creation).
+    place_id: str | None
     # The configured delivery zone this postal code falls under, if any —
     # None means either no active zone covers it or no zones have been
     # configured yet (see get_service_area_for_postal_code).
     service_area_zone_name: str | None
     service_area_city: str | None
+    # Live Rider Tracking Phase 27 — Restaurant/Admin Visibility. Reuses
+    # the exact same time-boxed gate the customer's own tracking view
+    # uses (LOCATION_VISIBLE_STATUSES) — an operational "where is this
+    # delivery right now" view, not unrestricted surveillance: None
+    # before a rider is assigned, after delivery/cancellation, or if the
+    # rider simply hasn't reported a position yet.
+    rider_latitude: Decimal | None
+    rider_longitude: Decimal | None
+    rider_location_updated_at: datetime | None
     # Chronological, oldest first — the actual order timeline.
     items: list[OrderItemRead]
     status_history: list[OrderStatusHistoryRead]

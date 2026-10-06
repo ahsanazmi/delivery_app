@@ -113,8 +113,8 @@ def test_customer_a_cannot_reach_customer_b_data(engine):
     with TestClient(app) as client:
         headers_a = {"Authorization": f"Bearer {token_a}"}
         # Modified URL ID: Customer A guesses/knows Customer B's address id.
-        assert client.get(f"/api/v1/customer/addresses/{address_b_id}", headers=headers_a).status_code == 404
-        assert client.delete(f"/api/v1/customer/addresses/{address_b_id}", headers=headers_a).status_code == 404
+        assert client.get(f"/api/v1/addresses/{address_b_id}", headers=headers_a).status_code == 404
+        assert client.delete(f"/api/v1/addresses/{address_b_id}", headers=headers_a).status_code == 404
         assert client.get(f"/api/v1/customer/orders/{uuid.uuid4()}", headers=headers_a).status_code == 404
 
 
@@ -166,6 +166,127 @@ def test_restaurant_a_cannot_reach_restaurant_b_data(engine):
         ).status_code == 403
 
 
+def test_rider_a_cannot_reach_rider_bs_real_active_deliverys_customer_location(engine):
+    """Maps & Location System Phase 30 — a stronger version of
+    test_rider_a_cannot_reach_rider_b_data above: that test only tries a
+    random UUID against rider A. This one gives rider B a REAL, active
+    delivery with real customer coordinates, and proves rider A still
+    can't reach it by guessing/knowing its real order id — the location
+    data itself (not just "does this id exist") is what must stay hidden."""
+    from app.models.order import Order, OrderStatus
+
+    with Session(engine) as seed:
+        rider_a = User(name="Rider A", email="idor-loc-rider-a@example.com", phone="9600000050", password_hash=hash_password("x"), role=UserRole.RIDER)
+        rider_b = User(name="Rider B", email="idor-loc-rider-b@example.com", phone="9600000051", password_hash=hash_password("x"), role=UserRole.RIDER)
+        seed.add_all([rider_a, rider_b])
+        seed.commit()
+        seed.add_all([
+            DeliveryPartner(user_id=rider_a.id, approval_status=ApprovalStatus.APPROVED),
+            DeliveryPartner(user_id=rider_b.id, approval_status=ApprovalStatus.APPROVED),
+        ])
+        order = Order(
+            user_id=uuid.uuid4(), rider_id=rider_b.id, customer_name="Real Customer", customer_email="realcust@example.com",
+            customer_phone="9999999999", restaurant_id="rest-idor-1", restaurant_name="Some Restaurant",
+            restaurant_address="Main Road", order_number=f"ORD-IDOR-{uuid.uuid4().hex[:16]}",
+            status=OrderStatus.OUT_FOR_DELIVERY, payment_method="cod", payment_status="pending",
+            subtotal=Decimal("100.00"), delivery_fee=Decimal("30.00"), tax=Decimal("0.00"), discount=Decimal("0.00"),
+            total=Decimal("130.00"), address_line="99 Secret Lane", city="Town", postal_code="560001",
+            latitude=Decimal("12.9716"), longitude=Decimal("77.5946"),
+        )
+        seed.add(order)
+        seed.commit()
+        token_a = create_access_token(rider_a.id)
+        order_id = order.id
+
+    with TestClient(app) as client:
+        headers_a = {"Authorization": f"Bearer {token_a}"}
+        response = client.get(f"/api/v1/rider/deliveries/{order_id}", headers=headers_a)
+        assert response.status_code == 404
+
+
+def test_restaurant_a_cannot_reach_restaurant_bs_order_or_its_route(engine):
+    """Maps & Location System Phase 30 — a real order (with a real
+    delivery location) belonging to restaurant B, and restaurant A's own
+    order-detail and route (Phase 20) endpoints, both by real order id."""
+    from app.models.order import Order, OrderStatus
+
+    with Session(engine) as seed:
+        owner_a = User(name="Owner A2", email="idor-loc-owner-a@example.com", phone="9600000060", password_hash=hash_password("x"), role=UserRole.RESTAURANT_OWNER)
+        owner_b = User(name="Owner B2", email="idor-loc-owner-b@example.com", phone="9600000061", password_hash=hash_password("x"), role=UserRole.RESTAURANT_OWNER)
+        seed.add_all([owner_a, owner_b])
+        seed.commit()
+        restaurant_a = Restaurant(
+            owner_id=owner_a.id, name="A's Diner", phone="9876500001", address="Road A",
+            latitude=Decimal("12.1"), longitude=Decimal("77.1"), minimum_order=Decimal("0.00"), delivery_fee=Decimal("0.00"),
+        )
+        restaurant_b = Restaurant(
+            owner_id=owner_b.id, name="B's Diner 2", phone="9876500002", address="Road B",
+            latitude=Decimal("12.2"), longitude=Decimal("77.2"), minimum_order=Decimal("0.00"), delivery_fee=Decimal("0.00"),
+        )
+        seed.add_all([restaurant_a, restaurant_b])
+        seed.commit()
+        order = Order(
+            user_id=uuid.uuid4(), restaurant_id=str(restaurant_b.id), restaurant_name=restaurant_b.name,
+            restaurant_address=restaurant_b.address, customer_name="Cust", customer_email="cust-idor@example.com",
+            customer_phone="9999999999", order_number=f"ORD-IDOR-{uuid.uuid4().hex[:16]}",
+            status=OrderStatus.PLACED, payment_method="cod", payment_status="pending",
+            subtotal=Decimal("100.00"), delivery_fee=Decimal("30.00"), tax=Decimal("0.00"), discount=Decimal("0.00"),
+            total=Decimal("130.00"), address_line="1 B Street", city="Town", postal_code="560001",
+            latitude=Decimal("12.97"), longitude=Decimal("77.59"),
+        )
+        seed.add(order)
+        seed.commit()
+        token_a = create_access_token(owner_a.id)
+        order_id = order.id
+
+    with TestClient(app) as client:
+        headers_a = {"Authorization": f"Bearer {token_a}"}
+        assert client.get(f"/api/v1/restaurant/orders/{order_id}", headers=headers_a).status_code == 404
+        assert client.get(f"/api/v1/restaurant/orders/{order_id}/route", headers=headers_a).status_code == 404
+
+
+def test_available_deliveries_never_include_precise_customer_location_before_a_rider_claims_one(engine):
+    """Maps & Location System Phase 30/25 — a rider browsing unclaimed
+    deliveries (not yet "appropriately associated" with any of them) must
+    never see a customer's precise address/coordinates, only the coarse
+    city/area — proven at the actual response shape, not just by code
+    inspection."""
+    from app.models.order import Order, OrderStatus
+
+    with Session(engine) as seed:
+        rider = User(name="Browsing Rider", email="idor-browse-rider@example.com", phone="9600000070", password_hash=hash_password("x"), role=UserRole.RIDER)
+        seed.add(rider)
+        seed.commit()
+        seed.add(DeliveryPartner(user_id=rider.id, approval_status=ApprovalStatus.APPROVED, is_online=True))
+        restaurant = Restaurant(
+            owner_id=uuid.uuid4(), name="Available Diner", phone="9876500003", address="Road C",
+            latitude=Decimal("12.3"), longitude=Decimal("77.3"), minimum_order=Decimal("0.00"), delivery_fee=Decimal("0.00"),
+        )
+        seed.add(restaurant)
+        seed.commit()
+        order = Order(
+            user_id=uuid.uuid4(), rider_id=None, restaurant_id=str(restaurant.id), restaurant_name=restaurant.name,
+            restaurant_address=restaurant.address, customer_name="Unclaimed Cust", customer_email="unclaimed@example.com",
+            customer_phone="9999999999", order_number=f"ORD-IDOR-{uuid.uuid4().hex[:16]}",
+            status=OrderStatus.READY_FOR_PICKUP, payment_method="cod", payment_status="pending",
+            subtotal=Decimal("100.00"), delivery_fee=Decimal("30.00"), tax=Decimal("0.00"), discount=Decimal("0.00"),
+            total=Decimal("130.00"), address_line="42 Hidden Avenue", city="Town", postal_code="560001",
+            latitude=Decimal("13.0"), longitude=Decimal("78.0"),
+        )
+        seed.add(order)
+        seed.commit()
+        token = create_access_token(rider.id)
+
+    with TestClient(app) as client:
+        headers = {"Authorization": f"Bearer {token}"}
+        response = client.get("/api/v1/rider/deliveries/available", headers=headers)
+        assert response.status_code == 200
+        body = response.json()
+        assert body, "expected at least one available delivery"
+        for field in ("customer_address", "delivery_address_line", "customer_latitude", "customer_longitude"):
+            assert field not in body[0]
+
+
 def test_admin_only_api_rejects_every_non_admin_role(engine):
     with Session(engine) as seed:
         customer = User(name="Customer", email="idor-cust-admin@example.com", phone="9600000040", password_hash=hash_password("x"), role=UserRole.CUSTOMER)
@@ -206,7 +327,7 @@ def test_modified_request_body_cannot_reassign_ownership(engine):
     with TestClient(app) as client:
         headers = {"Authorization": f"Bearer {token}"}
         created = client.post(
-            "/api/v1/customer/addresses", headers=headers,
+            "/api/v1/addresses", headers=headers,
             json={
                 "recipient_name": "Not me", "phone": "9999999999", "address_line": "1 Road",
                 "city": "Town", "state": "ST", "postal_code": "123456",

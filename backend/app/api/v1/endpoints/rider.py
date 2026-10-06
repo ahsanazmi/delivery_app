@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 
 from app.api.v1.deps import DbSession, require_rider
+from app.core.rate_limit import rate_limit
 from app.models.user import User
 from app.schemas.order import OrderRead
 from app.schemas.rider import RiderLocationRead, RiderLocationUpdate
@@ -13,15 +14,28 @@ router = APIRouter()
 @router.patch("/location", response_model=RiderLocationRead)
 def update_location(
     payload: RiderLocationUpdate,
+    request: Request,
     db: DbSession,
     current_rider: User = Depends(require_rider),
 ) -> RiderLocationRead:
-    # Phase 22's "equivalent efficient location ingestion mechanism" — this
-    # existing PATCH is extended in place (accuracy/heading/speed, a
-    # throttled history ledger, and an online-or-active-delivery gate)
-    # rather than standing up a parallel POST route for the same concern.
+    # A prior phase's "equivalent efficient location ingestion mechanism" —
+    # this existing PATCH is extended in place (accuracy/heading/speed,
+    # altitude/captured_at, a throttled history ledger, GPS-jump/timestamp
+    # filtering, and an online-or-active-delivery gate — Live Rider
+    # Tracking Phases 3/5/6/7/8) rather than standing up a parallel POST
+    # route for the same concern.
+    #
+    # Live Rider Tracking Phase 40 — Final Security Audit. This was the one
+    # tracking-surface endpoint without a rate limit at all — the client's
+    # own ~12s reporting interval is self-limiting for a well-behaved app,
+    # but nothing server-side previously bounded a compromised or buggy
+    # client hammering it. Keyed by rider id (a device-bound identity, not
+    # IP, matching this endpoint's own auth model), generous enough to
+    # never interfere with the real reporting cadence.
+    rate_limit(request, max_attempts=30, window_seconds=60, key=f"rider-location:{current_rider.id}")
     return update_rider_location(
-        db, current_rider, payload.latitude, payload.longitude, payload.accuracy, payload.heading, payload.speed
+        db, current_rider, payload.latitude, payload.longitude, payload.accuracy, payload.heading, payload.speed,
+        payload.altitude, payload.captured_at,
     )
 
 

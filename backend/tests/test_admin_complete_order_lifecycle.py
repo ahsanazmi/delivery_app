@@ -127,7 +127,7 @@ def test_complete_order_lifecycle_consistent_across_all_four_roles(engine):
         # CUSTOMER -> Place Order -> PLACED
         # ------------------------------------------------------------------
         address = client.post(
-            "/api/v1/customer/addresses", headers=customer_headers,
+            "/api/v1/addresses", headers=customer_headers,
             json={
                 "label": "Home", "recipient_name": "Customer P27", "phone": "9300000010",
                 "address_line": "42 MG Road", "city": "Bengaluru", "state": "Karnataka", "postal_code": "560001",
