@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, HttpUrl
 
+from app.models.delivery_partner import ApprovalStatus
 from app.schemas.user import UserRead
 
 class RestaurantCreate(BaseModel):
@@ -88,6 +89,10 @@ class RestaurantRead(BaseModel):
     average_rating: Decimal
     is_open: bool
     is_active: bool
+    # So an owner whose restaurant came in through the partner application
+    # can see it's still under review (or why it was rejected).
+    approval_status: ApprovalStatus
+    rejection_reason: str | None
     created_at: datetime
     updated_at: datetime
 

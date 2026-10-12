@@ -6,10 +6,16 @@ from fastapi import APIRouter, HTTPException, Request, status
 from app.api.v1.deps import CurrentUser, DbSession
 from app.core.rate_limit import rate_limit
 from app.core.security import create_access_token, create_refresh_token, decode_token
+from app.models.delivery_partner import ApprovalStatus
+from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.schemas.auth import LoginRequest, RefreshTokenRequest, RegisterRequest, TokenPair
+from app.schemas.restaurant import RestaurantOwnerMe
+from app.schemas.restaurant_onboarding import RestaurantOnboardingRequest
 from app.schemas.user import UserRead
 from app.services.auth import authenticate_user, get_user_by_email, get_user_by_phone, register_user
+from app.services.notifications import notify_admins
+from app.services.restaurant_onboarding import create_owner_with_restaurant
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +43,24 @@ def register(payload: RegisterRequest, db: DbSession, request: Request) -> UserR
     if payload.phone and get_user_by_phone(db, payload.phone):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with this phone number already exists")
     return register_user(db, payload)
+
+
+@router.post("/register-restaurant", response_model=RestaurantOwnerMe, status_code=status.HTTP_201_CREATED)
+def register_restaurant(payload: RestaurantOnboardingRequest, db: DbSession, request: Request) -> RestaurantOwnerMe:
+    """Public "apply as a restaurant partner" — creates the owner account and
+    a PENDING restaurant. The owner can log in and set up their menu right
+    away, but the restaurant stays hidden from customers (see
+    get_active_restaurant_or_404) until an admin approves it."""
+    rate_limit(request, max_attempts=5, window_seconds=60)
+    owner, restaurant = create_owner_with_restaurant(db, payload, approval_status=ApprovalStatus.PENDING)
+    notify_admins(
+        db, NotificationType.NEW_RESTAURANT_REGISTERED, "New restaurant application",
+        f"{restaurant.name} has applied to join the platform and is awaiting approval.",
+    )
+    db.commit()
+    db.refresh(owner)
+    db.refresh(restaurant)
+    return RestaurantOwnerMe(user=owner, restaurants=[restaurant])
 
 
 @router.post("/login", response_model=TokenPair)

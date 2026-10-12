@@ -32,7 +32,7 @@ def engine():
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
@@ -106,9 +106,12 @@ def test_one_order_is_the_same_record_across_customer_restaurant_admin_and_rider
             "id", "user_id", "restaurant_id", "order_number", "status", "payment_method",
             "subtotal", "delivery_fee", "tax", "discount", "total", "item_count",
             "address_line", "city", "state", "postal_code",
-            "created_at", "customer_name", "customer_email", "customer_phone",
+            "created_at", "customer_name", "customer_phone",
         ):
             assert customer_view[field] == restaurant_view[field], f"{field} drifted between customer and restaurant views"
+        # E2E Validation Phase 16 — data minimisation: the restaurant never
+        # receives the customer's email (it isn't shown in the portal).
+        assert "customer_email" not in restaurant_view
 
         assert customer_view["user_id"] == str(customer_id)
         assert customer_view["restaurant_id"] == str(restaurant_id)

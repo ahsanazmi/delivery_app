@@ -48,8 +48,14 @@ def delete_address(db: Session, user_id: UUID, address_id: UUID) -> Address:
     target = get_address_for_user(db, user_id, address_id)
     if not target:
         raise ValueError("Address not found")
+    was_default = target.is_default
     target.is_active = False
-    if target.is_default:
+    target.is_default = False
+    # E2E Validation Phase 9 — the session doesn't autoflush, so without this
+    # the query below still saw `target` as the active default, "promoted"
+    # the very address being deleted, and left the customer with no default.
+    db.flush()
+    if was_default:
         next_default = list_addresses(db, user_id)
         if next_default:
             next_default[0].is_default = True

@@ -162,7 +162,13 @@ def test_admin_with_a_tampered_token_is_rejected(client):
     admin = _make_admin(db)
     token = create_access_token(admin.id)
 
-    tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+    # Flip a character in the middle of the signature, not the last one: the
+    # final base64url character of a 32-byte HS256 signature carries 2 padding
+    # bits, so e.g. "A"<->"B" there decodes to the same bytes and the
+    # "tampered" token stayed valid ~1 run in 16 (E2E Validation Phase 5).
+    header, payload, signature = token.split(".")
+    flipped = "A" if signature[10] != "A" else "B"
+    tampered = f"{header}.{payload}.{signature[:10]}{flipped}{signature[11:]}"
     response = client.get(DASHBOARD_URL, headers={"Authorization": f"Bearer {tampered}"})
     assert response.status_code == 401
 

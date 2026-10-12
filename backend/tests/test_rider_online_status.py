@@ -200,7 +200,7 @@ def test_suspended_rider_still_cannot_pick_up_or_deliver():
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db

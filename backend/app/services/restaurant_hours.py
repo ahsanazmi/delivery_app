@@ -1,9 +1,11 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone, tzinfo
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.restaurant import Restaurant
 from app.models.restaurant_hours import RestaurantOperatingHours
 from app.schemas.restaurant_hours import OperatingHourEntry
@@ -40,17 +42,35 @@ def replace_hours(
     return get_hours_for_restaurant(db, restaurant_id)
 
 
+def _business_timezone() -> tzinfo:
+    try:
+        return ZoneInfo(settings.BUSINESS_TIMEZONE)
+    except ZoneInfoNotFoundError:
+        # A host without a tz database (no system zoneinfo, no `tzdata`
+        # package). India has no DST, so its fixed offset is exact.
+        if settings.BUSINESS_TIMEZONE == "Asia/Kolkata":
+            return timezone(timedelta(hours=5, minutes=30), "IST")
+        raise
+
+
+def _to_business_time(now: datetime) -> datetime:
+    """E2E Validation Phase 12 — owners enter opening hours in local clock
+    time; comparing them against UTC made a 09:00–21:00 restaurant actually
+    accept orders 14:30–02:30 IST."""
+    return (now if now.tzinfo else now.replace(tzinfo=UTC)).astimezone(_business_timezone())
+
+
 def is_within_operating_hours(hours: list[RestaurantOperatingHours], now: datetime) -> bool:
     """True if no hours are configured at all (an opt-in feature — until the
     owner sets a schedule, checkout keeps relying on the plain is_open
     toggle), or if `now` falls within today's configured window.
 
-    Times are compared in UTC, consistent with how "today" is already defined
-    elsewhere in this app (e.g. the Phase 2 dashboard's daily metrics) — there
-    is no per-restaurant timezone field yet.
+    Times are compared in settings.BUSINESS_TIMEZONE (the owner's local
+    clock), not UTC — there is no per-restaurant timezone field yet.
     """
     if not hours:
         return True
+    now = _to_business_time(now)
     today = now.weekday()  # 0=Monday .. 6=Sunday
     todays_hours = next((h for h in hours if h.day_of_week == today), None)
     if todays_hours is None or todays_hours.is_closed:
@@ -73,6 +93,6 @@ def compute_is_accepting_orders(
 
 
 def get_today_hours(hours: list[RestaurantOperatingHours], now: datetime | None = None) -> RestaurantOperatingHours | None:
-    now = now or datetime.now(UTC)
+    now = _to_business_time(now or datetime.now(UTC))
     today = now.weekday()
     return next((h for h in hours if h.day_of_week == today), None)

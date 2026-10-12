@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.search_patterns import LIKE_ESCAPE, contains_pattern
 from app.models.category import Category
 
 
@@ -19,8 +20,8 @@ def list_active_categories(db: Session) -> list[Category]:
 def search_categories(db: Session, *, q: str | None = None, offset: int = 0, limit: int = 20) -> list[Category]:
     statement = select(Category).where(Category.is_active.is_(True))
     if q:
-        query = f"%{q.strip().lower()}%"
-        statement = statement.where(func.lower(Category.name).like(query))
+        query = contains_pattern(q)
+        statement = statement.where(func.lower(Category.name).like(query, escape=LIKE_ESCAPE))
     statement = statement.order_by(Category.display_order.asc(), Category.name.asc()).offset(offset).limit(limit)
     return list(db.scalars(statement))
 

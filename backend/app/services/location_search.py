@@ -56,6 +56,12 @@ _MIN_SECONDS_BETWEEN_REQUESTS = 1.1
 # throttle to clear — an honest "try again" beats a very slow response.
 _MAX_THROTTLE_WAIT_SECONDS = 3.0
 _REQUEST_TIMEOUT_SECONDS = 5.0
+# E2E Validation Phase 2 — komoot's public Photon instance answers 403 to
+# httpx's default "python-httpx/x.y" User-Agent (verified live: same query,
+# default UA -> 403, identifying UA -> 200), which made every address search
+# and reverse geocode on Render fail as "temporarily unavailable". Its
+# fair-use policy expects clients to identify themselves anyway.
+_REQUEST_HEADERS = {"User-Agent": f"{settings.PROJECT_NAME} (address search)"}
 
 _throttle_lock = threading.Lock()
 _last_request_at: float = 0.0
@@ -151,6 +157,7 @@ def _call_photon(path: str, params: dict) -> dict:
         response = httpx.get(
             f"{settings.PHOTON_API_BASE_URL}{path}",
             params=params,
+            headers=_REQUEST_HEADERS,
             timeout=_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()

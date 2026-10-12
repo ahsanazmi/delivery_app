@@ -46,7 +46,7 @@ export function Breadcrumbs() {
         <>
           <Link to={`/${section}`}>{sectionLabel}</Link>
           <span className="sep">/</span>
-          <span className="current">{DETAIL_LABELS[section] ?? "Details"}</span>
+          <span className="current">{segments[1] === "new" ? "New" : (DETAIL_LABELS[section] ?? "Details")}</span>
         </>
       ) : (
         <span className="current">{sectionLabel}</span>

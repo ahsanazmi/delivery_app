@@ -4,14 +4,18 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# Per cart line. Also enforced on the *accumulated* quantity in
+# app.services.cart.add_item, not just per request.
+MAX_ITEM_QUANTITY = 100
+
 
 class CartItemCreate(BaseModel):
     product_id: UUID
-    quantity: int = Field(default=1, ge=1, le=100)
+    quantity: int = Field(default=1, ge=1, le=MAX_ITEM_QUANTITY)
 
 
 class CartItemUpdate(BaseModel):
-    quantity: int = Field(ge=1, le=100)
+    quantity: int = Field(ge=1, le=MAX_ITEM_QUANTITY)
 
 
 class CartItemRead(BaseModel):

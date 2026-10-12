@@ -437,7 +437,7 @@ def test_http_endpoint_processes_a_genuinely_signed_event_end_to_end(monkeypatch
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
@@ -480,7 +480,7 @@ def test_http_endpoint_never_processes_an_unsigned_payload(monkeypatch):
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
@@ -527,7 +527,7 @@ def test_http_endpoint_never_500s_on_a_genuinely_signed_but_malformed_body(monke
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db

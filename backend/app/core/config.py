@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     # visibility in the log stream too (the DB-backed AdminAuditLog remains
     # the authoritative, queryable record of admin actions regardless).
     LOG_LEVEL: str = "WARNING"
+    # E2E Validation Phase 12 — restaurant operating hours are entered by
+    # owners as plain local clock times (business-web's <input type="time">,
+    # no timezone shown) and must be compared in that same local time, not
+    # UTC. One platform-wide zone for now (India); there's no per-restaurant
+    # timezone field.
+    BUSINESS_TIMEZONE: str = "Asia/Kolkata"
     DATABASE_URL: str = "postgresql+psycopg://say_hi_chai:say_hi_chai@localhost:5433/say_hi_chai"
     JWT_SECRET_KEY: str = "change-me-before-production-use-please"
     JWT_ALGORITHM: str = "HS256"

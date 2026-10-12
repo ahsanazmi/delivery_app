@@ -24,7 +24,7 @@ from app.services import location_service
 from app.services.cart import add_item, clear_cart, get_cart_for_user
 from app.services.checkout import validate_checkout
 from app.services.commissions import compute_effective_commission
-from app.services.coupons import record_coupon_redemption
+from app.services.coupons import lock_and_recheck_coupon_usage, record_coupon_redemption
 from app.services.admin_audit_log import record_admin_audit_log
 from app.services.notifications import (
     notify_admins,
@@ -99,7 +99,12 @@ ADMIN_REASSIGNABLE_STATUSES = {OrderStatus.RIDER_ASSIGNED}
 
 def _next_order_number() -> str:
     stamp = datetime.now(UTC).strftime("%Y%m%d")
-    suffix = secrets.token_hex(3).upper()
+    # E2E Validation Phase 15 — was token_hex(3): 16.7M numbers per day, so by
+    # the birthday bound ~5,000 orders/day made a collision on the unique
+    # order_number (an unretried IntegrityError -> failed order) roughly a
+    # coin flip each day. 10 hex digits (1.1e12/day) keeps it negligible and
+    # still fits String(32).
+    suffix = secrets.token_hex(5).upper()
     return f"ORD-{stamp}-{suffix}"
 
 
@@ -168,6 +173,31 @@ def _broadcast_tracking_update(db: Session, order: Order) -> None:
         manager.close_room(order.id)
 
 
+def _flag_paid_online_order_for_refund(db: Session, order: Order) -> None:
+    """E2E Validation Phase 26 — a cancelled/rejected order whose online
+    payment was already captured used to keep its Payment at PAID: the
+    customer was charged for food they'd never get, with no refund
+    obligation recorded anywhere (the only trace was a generic "order
+    issue" admin alert, which notify_admins also folds into earlier unread
+    alerts of the same type). The obligation is now recorded on the payment
+    itself as REFUND_PENDING — the same state the webhook already uses for
+    a capture that lands on a dead order — and is refundable from the admin
+    payments page; an explicit admin alert names the order and amount."""
+    if order.payment_method != "razorpay" or not order.is_paid:
+        return
+    payment = db.query(Payment).filter(Payment.order_id == order.id).first()
+    if payment is None or payment.payment_status != PaymentStatus.PAID:
+        return
+    payment.payment_status = PaymentStatus.REFUND_PENDING
+    order.payment_status = "refund_pending"
+    notify_admins(
+        db, NotificationType.SYSTEM_ALERT, "Refund needed",
+        f"Order {order.order_number} was {order.status.value} after its online payment of "
+        f"{payment.amount} {payment.currency} was captured (payment {payment.id}). Refund the customer.",
+        order_id=order.id,
+    )
+
+
 def transition_order_status(db: Session, order: Order, new_status: OrderStatus, note: str | None = None) -> Order:
     """The single choke point for every order status mutation. Commits and
     broadcasts the change itself, so every caller (customer cancel, rider
@@ -202,6 +232,15 @@ def transition_order_status(db: Session, order: Order, new_status: OrderStatus, 
             order.id, previous_status.value, new_status.value,
         )
         raise ValueError(f"Cannot move an order from {previous_status.value} to {new_status.value}")
+    # E2E Validation Phase 9 — callers set fields on `order` right before
+    # calling this (assign_rider_to_order: rider_id; reject/cancel paths:
+    # cancelled_reason). The app's sessions don't autoflush, so those were
+    # still pending when the db.refresh(order) below reloaded the row —
+    # silently discarding them: admin-assigned orders became RIDER_ASSIGNED
+    # with rider_id NULL, and rejection/cancellation reasons were lost.
+    # Flushing here keeps them in this same transaction (the rollback on a
+    # lost race below still undoes them).
+    db.flush()
     result = db.execute(
         update(Order).where(Order.id == order.id, Order.status == previous_status).values(status=new_status)
     )
@@ -223,6 +262,8 @@ def transition_order_status(db: Session, order: Order, new_status: OrderStatus, 
         notify_riders_of_new_delivery(db, order)
     if new_status == OrderStatus.CANCELLED:
         _cancel_delivery_assignment(db, order)
+    if new_status in (OrderStatus.CANCELLED, OrderStatus.REJECTED):
+        _flag_paid_online_order_for_refund(db, order)
     if new_status in (OrderStatus.CANCELLED, OrderStatus.REJECTED):
         # Admin Portal Phase 20 — "Order issue": something went wrong with
         # this order, worth an admin's attention, regardless of who or what
@@ -375,6 +416,7 @@ def create_order(
         notify_order_placed(db, order)
         notify_restaurant_new_order(db, order)
         if validation.get("coupon_id"):
+            lock_and_recheck_coupon_usage(db, validation["coupon_id"], user.id)
             record_coupon_redemption(db, validation["coupon_id"], user.id, order.id)
         clear_cart(db, cart)
         db.commit()
@@ -800,6 +842,17 @@ def accept_order(db: Session, restaurant_id: UUID, order_id: UUID) -> Order:
 
 def reject_order(db: Session, restaurant_id: UUID, order_id: UUID, reason: str | None = None) -> Order:
     order = get_restaurant_order_or_404(db, restaurant_id, order_id)
+    # Razorpay Test Mode Phase 12 — same gate as accept_order(): an
+    # unpaid online order isn't the restaurant's to act on yet (it's
+    # hidden from their list for the same reason). Without this, a
+    # restaurant holding the id could reject it while the customer was
+    # still in Checkout, and the payment that followed landed in
+    # REFUND_PENDING — real money needing a manual refund.
+    if order.payment_method == "razorpay" and not order.is_paid:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This order's online payment hasn't been confirmed yet.",
+        )
     order.cancelled_reason = reason
     try:
         transition_order_status(db, order, OrderStatus.REJECTED, reason or "Rejected by restaurant")

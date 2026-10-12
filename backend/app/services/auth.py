@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -6,6 +8,10 @@ from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.schemas.auth import RegisterRequest
 from app.services.notifications import notify_admins
+
+# A real hash of a random throwaway value, computed once at import, so
+# authenticate_user() can do equal-cost verification for unknown accounts.
+_DUMMY_PASSWORD_HASH = hash_password(uuid4().hex)
 
 
 def get_user_by_email(db: Session, email: str) -> User | None:
@@ -50,6 +56,13 @@ def register_user(db: Session, payload: RegisterRequest) -> User:
 
 def authenticate_user(db: Session, *, email: str | None = None, phone: str | None = None, password: str = "") -> User | None:
     user = get_user_by_email_or_phone(db, email=email, phone=phone)
-    if not user or not verify_password(password, user.password_hash):
+    if not user:
+        # E2E Validation Phase 5 — an unknown account used to return without
+        # hashing anything (~2 ms vs ~40 ms for a real account with a wrong
+        # password), so response time alone revealed which emails/phones are
+        # registered. Spend the same hashing work either way.
+        verify_password(password, _DUMMY_PASSWORD_HASH)
+        return None
+    if not verify_password(password, user.password_hash):
         return None
     return user

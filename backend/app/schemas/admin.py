@@ -521,7 +521,7 @@ class AdminRefundCreateRequest(BaseModel):
     # Reason is mandatory here — unlike AdminCODSettleRequest's own
     # optional note, this phase explicitly requires it ("Admin must
     # provide: Refund amount, Reason").
-    amount: Decimal = Field(gt=0)
+    amount: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     reason: str = Field(min_length=1, max_length=1000)
 
 
@@ -581,7 +581,11 @@ class AdminCODReconciliationDetail(AdminCODReconciliationSummary):
 
 
 class AdminCODSettleRequest(BaseModel):
-    amount: Decimal = Field(gt=0)
+    # E2E Validation Phase 14 — max_digits/decimal_places match the
+    # NUMERIC(10,2) columns. Without them 0.001 was accepted, rounded to 0.00
+    # on insert and hit ck_cod_settlement_allocations_amount_positive (500);
+    # the same applied to every money input in this module and coupon.py.
+    amount: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
     note: str | None = Field(default=None, max_length=1000)
 
 
@@ -704,7 +708,7 @@ class AdminCommissionConfigRead(BaseModel):
 
 class AdminCommissionDefaultInput(BaseModel):
     commission_type: AdminCommissionType
-    value: Decimal = Field(gt=0)
+    value: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
 
     @model_validator(mode="after")
     def percentage_within_range(self):
@@ -716,7 +720,7 @@ class AdminCommissionDefaultInput(BaseModel):
 class AdminCommissionOverrideInput(BaseModel):
     restaurant_id: UUID
     commission_type: AdminCommissionType
-    value: Decimal = Field(gt=0)
+    value: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
 
     @model_validator(mode="after")
     def percentage_within_range(self):
@@ -783,9 +787,9 @@ class AdminCouponListResponse(BaseModel):
 class AdminCouponCreate(BaseModel):
     code: str = Field(min_length=3, max_length=64)
     discount_type: DiscountType
-    discount_value: Decimal = Field(gt=0)
-    min_order: Decimal = Field(default=Decimal("0.00"), ge=0)
-    max_discount: Decimal | None = Field(default=None, ge=0)
+    discount_value: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+    min_order: Decimal = Field(default=Decimal("0.00"), ge=0, max_digits=10, decimal_places=2)
+    max_discount: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
     start_date: datetime | None = None
     end_date: datetime | None = None
     usage_limit: int | None = Field(default=None, ge=1)
@@ -804,9 +808,9 @@ class AdminCouponCreate(BaseModel):
 class AdminCouponUpdate(BaseModel):
     code: str | None = Field(default=None, min_length=3, max_length=64)
     discount_type: DiscountType | None = None
-    discount_value: Decimal | None = Field(default=None, gt=0)
-    min_order: Decimal | None = Field(default=None, ge=0)
-    max_discount: Decimal | None = Field(default=None, ge=0)
+    discount_value: Decimal | None = Field(default=None, gt=0, max_digits=10, decimal_places=2)
+    min_order: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
+    max_discount: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
     start_date: datetime | None = None
     end_date: datetime | None = None
     usage_limit: int | None = Field(default=None, ge=1)

@@ -336,6 +336,32 @@ export function getAdminRestaurants(accessToken: string, params: AdminRestaurant
   });
 }
 
+// The owner account and restaurant are created together and the restaurant
+// goes live right away (APPROVED) — an admin adding it is the approval.
+export type AdminRestaurantCreateInput = {
+  owner_name: string;
+  email: string;
+  password: string;
+  owner_phone?: string | null;
+  restaurant_name: string;
+  description?: string | null;
+  restaurant_phone: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+};
+
+export function createAdminRestaurant(accessToken: string, payload: AdminRestaurantCreateInput) {
+  return apiFetch<AdminRestaurantDetail>("/api/v1/admin/restaurants", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function getAdminRestaurantDetail(accessToken: string, restaurantId: string) {
   return apiFetch<AdminRestaurantDetail>(`/api/v1/admin/restaurants/${restaurantId}`, {
     headers: { Authorization: `Bearer ${accessToken}` },

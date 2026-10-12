@@ -74,6 +74,23 @@ def _fake_response(features: list[dict]):
     return response
 
 
+def test_photon_calls_send_an_identifying_user_agent_not_the_httpx_default(monkeypatch):
+    """The public Photon instance 403s httpx's default User-Agent, which
+    took address search down on Render — both forward and reverse calls
+    must identify the app instead."""
+    mock_get = MagicMock(return_value=_fake_response([AZAMGARH_CITY_FEATURE]))
+    monkeypatch.setattr(location_search.httpx, "get", mock_get)
+
+    location_search.search_places("Azamgarh")
+    location_search._last_request_at = 0.0
+    location_search.reverse_geocode(Decimal("26.0654351"), Decimal("83.184439"))
+
+    assert mock_get.call_count == 2
+    for call in mock_get.call_args_list:
+        user_agent = call.kwargs["headers"]["User-Agent"]
+        assert user_agent and "python-httpx" not in user_agent
+
+
 def test_search_places_maps_a_real_photon_response_to_the_minimal_shape(monkeypatch):
     monkeypatch.setattr(location_search.httpx, "get", MagicMock(return_value=_fake_response([AZAMGARH_CITY_FEATURE])))
 
@@ -298,7 +315,7 @@ def test_reverse_geocode_calls_the_sibling_reverse_path_not_nested_under_api(mon
     lookup."""
     captured_url = {}
 
-    def fake_get(url, params, timeout):
+    def fake_get(url, params, timeout, **kwargs):
         captured_url["url"] = url
         response = MagicMock()
         response.raise_for_status = MagicMock()

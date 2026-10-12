@@ -4,6 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.delivery_partner import ApprovalStatus, VehicleType
+from app.schemas.user import PersonName, PhoneNumber
 
 
 class RiderVerificationRead(BaseModel):
@@ -47,8 +48,8 @@ class RiderVehicleUpdate(BaseModel):
 
 
 class RiderProfileUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=2, max_length=120)
-    phone: str | None = Field(default=None, min_length=8, max_length=20)
+    name: PersonName | None = None
+    phone: PhoneNumber | None = None
     email: EmailStr | None = None
     profile_image: str | None = Field(default=None, max_length=2048)
 

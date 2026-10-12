@@ -3,6 +3,7 @@ from uuid import UUID
 
 import jwt
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 
 from app.api.v1.deps import DbSession, require_customer
 from app.core.observability import log_event
@@ -43,6 +44,23 @@ def get_tracking(
     return to_tracking_response(result)
 
 
+def _initial_payload_then_release_db(db, order) -> dict:
+    """E2E Validation Phase 21 — builds the first snapshot (DB reads plus a
+    possible live-ETA routing call), then closes the session so this
+    socket stops holding a pooled connection for the rest of its life.
+    Before this, every open tracking socket kept one PostgreSQL session
+    "idle in transaction": with the default pool (5 + 10 overflow), 15
+    customers watching a delivery made every other request wait 30 s and
+    fail with a 500 (reproduced live). Later updates are pushed by
+    manager.broadcast() with payloads built by whoever changed the order,
+    so the socket never needs the database again."""
+    try:
+        snapshot = build_tracking_snapshot(db, order)
+        return to_tracking_response(snapshot).model_dump(mode="json")
+    finally:
+        db.close()
+
+
 @router.websocket("/ws/orders/{order_id}")
 async def order_tracking_socket(websocket: WebSocket, order_id: UUID, db: DbSession) -> None:
     """Live push of order status + rider location for one order, scoped to the
@@ -72,13 +90,16 @@ async def order_tracking_socket(websocket: WebSocket, order_id: UUID, db: DbSess
     # The REST equivalent (get_current_user) also checks is_active — a
     # deactivated account's still-unexpired access token must not keep a live
     # tracking connection open either.
-    user = db.get(User, user_id)
+    # E2E Validation Phase 21 — every blocking DB call below runs in the
+    # threadpool, never on the event loop this async handler shares with
+    # every other request and socket.
+    user = await run_in_threadpool(db.get, User, user_id)
     if not user or not user.is_active or user.role != UserRole.CUSTOMER:
         log_event(logger, "subscription_rejected", order_id=order_id, user_id=user_id, reason="inactive_or_wrong_role")
         await websocket.close(code=4401)
         return
 
-    order = get_user_order(db, user_id, order_id)
+    order = await run_in_threadpool(get_user_order, db, user_id, order_id)
     if not order:
         log_event(logger, "subscription_rejected", order_id=order_id, user_id=user_id, reason="not_found_or_not_owned")
         await websocket.close(code=4404)
@@ -92,8 +113,8 @@ async def order_tracking_socket(websocket: WebSocket, order_id: UUID, db: DbSess
         # A (re)connecting client always gets a full, fresh snapshot
         # immediately — it never has to wait for the next status change to
         # catch up after a dropped connection.
-        snapshot = build_tracking_snapshot(db, order)
-        await websocket.send_json(to_tracking_response(snapshot).model_dump(mode="json"))
+        payload = await run_in_threadpool(_initial_payload_then_release_db, db, order)
+        await websocket.send_json(payload)
 
         while True:
             # We don't expect meaningful client messages, but we must keep

@@ -170,7 +170,7 @@ def _http_setup():
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
@@ -330,3 +330,32 @@ def test_customer_and_rider_cannot_access_status_or_hours():
             assert client.get("/api/v1/restaurant/hours", headers=headers).status_code == 403
     finally:
         _teardown(engine)
+
+
+def test_operating_hours_are_compared_in_india_time_not_utc(db):
+    # E2E Validation Phase 12 — an owner's 09:00–21:00 means 09:00–21:00 IST.
+    # Compared in UTC it used to mean 14:30–02:30 IST.
+    owner = _owner(db)
+    restaurant = _restaurant(db, owner, is_open=True)
+    hours = [RestaurantOperatingHours(restaurant_id=restaurant.id, day_of_week=0, open_time=time(9, 0), close_time=time(21, 0))]
+
+    monday_0930_ist = datetime(2026, 9, 7, 4, 0, tzinfo=UTC)   # 09:30 IST
+    monday_1300_ist = datetime(2026, 9, 7, 7, 30, tzinfo=UTC)  # 13:00 IST (lunch)
+    monday_2200_ist = datetime(2026, 9, 7, 16, 30, tzinfo=UTC)  # 22:00 IST
+    monday_0100_ist = datetime(2026, 9, 6, 19, 30, tzinfo=UTC)  # 01:00 IST Monday (Sunday in UTC)
+
+    assert is_within_operating_hours(hours, monday_0930_ist) is True
+    assert is_within_operating_hours(hours, monday_1300_ist) is True
+    assert is_within_operating_hours(hours, monday_2200_ist) is False
+    assert is_within_operating_hours(hours, monday_0100_ist) is False
+
+
+def test_the_weekday_is_the_india_weekday(db):
+    # 23:00 UTC Sunday is already 04:30 Monday in India — Monday's row applies.
+    owner = _owner(db)
+    restaurant = _restaurant(db, owner, is_open=True)
+    hours = [
+        RestaurantOperatingHours(restaurant_id=restaurant.id, day_of_week=6, is_closed=True),
+        RestaurantOperatingHours(restaurant_id=restaurant.id, day_of_week=0, open_time=time(4, 0), close_time=time(10, 0)),
+    ]
+    assert is_within_operating_hours(hours, datetime(2026, 9, 6, 23, 0, tzinfo=UTC)) is True

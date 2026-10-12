@@ -285,13 +285,44 @@ def test_currency_mismatch_is_rejected(db):
 
 def test_a_not_yet_captured_payment_state_is_rejected_even_with_a_valid_signature(db):
     """Razorpay's own "authorized but not captured" state must never be
-    accepted as paid — money hasn't actually settled yet."""
+    accepted as paid — money hasn't actually settled yet.
+
+    Razorpay Test Mode Phase 11 — but it isn't a failure either: the money
+    is held. It waits in PROCESSING (no failure alerts) until capture."""
     fake = RealisticFakeProvider()
     service = PaymentService(providers={"razorpay": fake})
     order = _seed_order(db, "i", total=Decimal("300.00"))
     payment = service.create_payment_for_order(db, order=order, method="razorpay")
     order_id, payment_id, signature = _genuine_result_for(fake, payment.razorpay_order_id)
     fake.payment_status_overrides[payment_id] = "authorized"
+
+    result = service.verify_payment(db, payment=payment, provider_order_id=order_id, provider_payment_id=payment_id, signature=signature)
+
+    assert result.payment_status == PaymentStatus.PROCESSING
+    assert result.is_verified is False
+    db.refresh(order)
+    assert order.is_paid is False
+    held = [a for a in result.attempts if a.provider_payment_id == payment_id][0]
+    assert held.status == PaymentStatus.PROCESSING
+    assert held.failure_code == "PAYMENT_NOT_CAPTURED"
+
+    # Captured a moment later — the same payment id verifies to PAID.
+    fake.payment_status_overrides[payment_id] = "captured"
+    result = service.verify_payment(db, payment=result, provider_order_id=order_id, provider_payment_id=payment_id, signature=signature)
+    assert result.payment_status == PaymentStatus.PAID
+    db.refresh(order)
+    assert order.is_paid is True
+
+
+def test_a_created_but_not_authorized_payment_is_still_rejected(db):
+    """Only "authorized" is a hold worth waiting on; any other non-captured
+    state reported after Checkout's success callback is a failure."""
+    fake = RealisticFakeProvider()
+    service = PaymentService(providers={"razorpay": fake})
+    order = _seed_order(db, "i2", total=Decimal("300.00"))
+    payment = service.create_payment_for_order(db, order=order, method="razorpay")
+    order_id, payment_id, signature = _genuine_result_for(fake, payment.razorpay_order_id)
+    fake.payment_status_overrides[payment_id] = "created"
 
     with pytest.raises(PaymentVerificationError):
         service.verify_payment(db, payment=payment, provider_order_id=order_id, provider_payment_id=payment_id, signature=signature)

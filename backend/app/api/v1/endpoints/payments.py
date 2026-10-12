@@ -89,6 +89,15 @@ def create_payment(
     an existing Payment for this order is returned rather than a duplicate
     being created. Amount: always order.total, never accepted here."""
     order = _get_owned_order_or_404(db, payload.order_id, current_user)
+    # E2E Validation Phase 13 (Razorpay audit P9) — the method is the order's
+    # own, chosen at checkout; the body's `method` used to be trusted, so a
+    # COD Payment could be created for an online order, which then (one
+    # Payment per order) could never be paid online at all.
+    if payload.method != order.payment_method:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This order's payment method is {order.payment_method}, not {payload.method}.",
+        )
 
     try:
         payment = _payment_service.create_payment_for_order(db, order=order, method=payload.method)

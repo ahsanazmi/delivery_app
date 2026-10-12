@@ -26,7 +26,14 @@ def list_user_addresses(db: DbSession, current_user: User = Depends(require_cust
 
 @router.post("", response_model=AddressRead, status_code=status.HTTP_201_CREATED)
 def add_address(payload: AddressCreate, db: DbSession, current_user: User = Depends(require_customer)) -> AddressRead:
-    return create_address(db, current_user.id, payload.model_dump())
+    data = payload.model_dump()
+    # E2E Validation Phase 9 — AddressCreate defaults is_default to False, so a
+    # plain model_dump() always carried it and create_address()'s "a customer's
+    # first address becomes their default" rule never ran. Only pass it on
+    # when the client actually chose a value.
+    if "is_default" not in payload.model_fields_set:
+        data.pop("is_default")
+    return create_address(db, current_user.id, data)
 
 
 @router.get("/{address_id}", response_model=AddressRead)
@@ -46,6 +53,16 @@ def update_address(address_id: UUID, payload: AddressUpdate, db: DbSession, curr
     if update_data.get("is_default") is not None and update_data["is_default"]:
         set_default_address(db, current_user.id, address_id)
         update_data.pop("is_default", None)
+    # E2E Validation Phase 9 — AddressCreate enforces "both coordinates or
+    # neither", but a PATCH of just one of them (e.g. {"latitude": null})
+    # could leave half a pin. Check the resulting pair, not just the payload.
+    latitude = update_data.get("latitude", address.latitude)
+    longitude = update_data.get("longitude", address.longitude)
+    if (latitude is None) != (longitude is None):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Both latitude and longitude must be provided together, or neither.",
+        )
     for field, value in update_data.items():
         setattr(address, field, value)
     db.commit()

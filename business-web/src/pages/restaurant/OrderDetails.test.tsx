@@ -21,7 +21,7 @@ vi.mock("@/services/api/ordersApi", async (importOriginal) => {
 function baseOrder(overrides: Record<string, unknown> = {}) {
   return {
     id: "order-1", user_id: "u1", rider_id: null,
-    customer_name: "Ravi Kumar", customer_email: "ravi@example.com", customer_phone: "9999999999",
+    customer_name: "Ravi Kumar", customer_phone: "9999999999",
     restaurant_id: "r1", restaurant_name: "Diner", restaurant_phone: null, restaurant_address: null,
     order_number: "SHC-0001", status: "placed", payment_method: "razorpay",
     subtotal: "280.00", delivery_fee: "30.00", tax: "0.00", discount: "0.00", total: "310.00",

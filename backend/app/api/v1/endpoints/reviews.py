@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.api.v1.deps import DbSession, require_customer
 from app.models.review import ReviewTarget
 from app.models.user import User
-from app.schemas.review import ReviewCreate, ReviewRead
-from app.services.reviews import average_rating_for_target, create_review, list_reviews_for_target
+from app.schemas.review import ReviewRead
+from app.services.reviews import average_rating_for_target, list_reviews_for_target
 
 router = APIRouter()
 
@@ -19,21 +19,22 @@ router = APIRouter()
 # covered app/api/v1/customer/*.py.
 
 
-@router.post("", response_model=ReviewRead, status_code=status.HTTP_201_CREATED)
-def create_review_endpoint(payload: ReviewCreate, db: DbSession, current_user: User = Depends(require_customer)) -> ReviewRead:
-    if payload.target_type == ReviewTarget.RIDER and not payload.rider_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="rider_id is required for rider reviews")
-    if payload.target_type == ReviewTarget.RESTAURANT and not payload.restaurant_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="restaurant_id is required for restaurant reviews")
-    return create_review(
-        db,
-        user_id=current_user.id,
-        target_type=payload.target_type,
-        target_id=payload.target_id,
-        rating=payload.rating,
-        comment=payload.comment,
-        restaurant_id=payload.restaurant_id,
-        rider_id=payload.rider_id,
+@router.post("", status_code=status.HTTP_410_GONE, deprecated=True)
+def create_review_endpoint(current_user: User = Depends(require_customer)) -> None:
+    """E2E Validation Phase 23 (finding A1) — closed. This generic endpoint
+    took a client-supplied target and inserted a PUBLISHED review with no
+    order, no delivery and no uniqueness check: any customer could post
+    unlimited fake reviews for any restaurant or rider (reproduced: 5/5
+    accepted for a restaurant that didn't exist). Reviews are only created
+    through POST /api/v1/customer/orders/{order_id}/review, which proves the
+    customer's own delivered order and allows one review per order. The
+    route stays registered (and role-gated) so the legacy API contract is
+    still visible; it now always answers 410 Gone. The read endpoints below
+    are unchanged (frozen, see docs/reviews-ratings-architecture.md §2)."""
+    _ = current_user
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Reviews are created for a delivered order: POST /api/v1/customer/orders/{order_id}/review.",
     )
 
 
@@ -53,6 +54,8 @@ def list_rider_reviews(rider_id: UUID, db: DbSession) -> list[ReviewRead]:
 
 
 @router.get("/average/{target_type}/{target_id}")
-def average_review_score(target_type: str, target_id: str, db: DbSession) -> dict[str, float | str]:
-    review_enum = ReviewTarget(target_type)
-    return {"target_type": review_enum.value, "target_id": target_id, "average_rating": average_rating_for_target(db, target_type=review_enum, target_id=target_id)}
+def average_review_score(target_type: ReviewTarget, target_id: str, db: DbSession) -> dict[str, float | str]:
+    # E2E Validation Phase 4 — typed as the enum (was `str` + ReviewTarget(...)
+    # in the body), so an unknown target_type is a 422 from FastAPI's own
+    # validation instead of an unhandled ValueError surfacing as a 500.
+    return {"target_type": target_type.value, "target_id": target_id, "average_rating": average_rating_for_target(db, target_type=target_type, target_id=target_id)}

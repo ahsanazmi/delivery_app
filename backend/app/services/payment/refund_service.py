@@ -35,7 +35,12 @@ from app.services.payment.provider import PaymentProvider
 
 _ZERO = Decimal("0.00")
 
-_REFUNDABLE_STATUSES = (PaymentStatus.PAID, PaymentStatus.PARTIALLY_REFUNDED)
+# E2E Validation Phase 26 — REFUND_PENDING added: it means "money was taken
+# for an order that can't be fulfilled — refund it" (set by the webhook for a
+# late capture on a dead order, and now by cancel/reject of a paid online
+# order), yet it was excluded here, so the one state that exists to demand a
+# refund was the one an admin couldn't refund from.
+_REFUNDABLE_STATUSES = (PaymentStatus.PAID, PaymentStatus.PARTIALLY_REFUNDED, PaymentStatus.REFUND_PENDING)
 # Genuinely settled — money has actually moved back to the customer.
 _SETTLED_REFUND_STATUSES = (RefundStatus.COMPLETED,)
 # "Spoken for" — either settled or still being processed by Razorpay.
@@ -70,6 +75,13 @@ def recompute_payment_refund_status(db: Session, payment: Payment) -> None:
     Refund's status changes to/from COMPLETED — from create_refund()
     itself when Razorpay confirms instantly, or later from the
     refund.processed webhook when it doesn't."""
+    # E2E Validation Phase 9 — every caller changes a Refund's status in
+    # memory right before calling this, and the app's sessions don't
+    # autoflush. create_refund() already flushed for itself (Phase 25), but
+    # the refund.processed webhook didn't, so _sum_refunds() below saw the
+    # refund as still PROCESSING and the payment stayed PAID forever.
+    # Flushing here covers every caller, present and future.
+    db.flush()
     settled = _sum_refunds(db, payment.id, _SETTLED_REFUND_STATUSES)
     if settled <= _ZERO:
         return

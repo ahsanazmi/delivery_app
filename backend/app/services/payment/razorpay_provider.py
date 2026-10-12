@@ -12,6 +12,7 @@ and Razorpay's API is small enough that a thin direct client is simpler
 than a second HTTP-calling library.
 """
 
+import logging
 from decimal import ROUND_HALF_UP, Decimal
 
 import httpx
@@ -21,7 +22,29 @@ from app.services.payment.exceptions import ProviderNotConfiguredError, Provider
 from app.services.payment.provider import PaymentProvider, ProviderOrder, ProviderPayment, ProviderRefund
 from app.services.payment.verification import verify_hmac_signature
 
+logger = logging.getLogger(__name__)
+
 _API_BASE_URL = "https://api.razorpay.com/v1"
+
+
+def _request_error(action: str, exc: httpx.HTTPError) -> ProviderRequestError:
+    """Razorpay Test Mode Phase 3 — every route maps ProviderRequestError to
+    a generic 502 "Unable to reach the payment provider", which made a 401
+    (bad/rotated keys) indistinguishable from a real outage in production
+    logs. Log Razorpay's own status + error description here, once, at the
+    only place that still has the response. Neither contains credentials:
+    the key pair travels only in the Authorization header, which is never
+    part of the URL, the response, or this message."""
+    response = getattr(exc, "response", None)
+    if response is not None:
+        try:
+            detail = response.json().get("error", {}).get("description") or response.text[:300]
+        except ValueError:
+            detail = response.text[:300]
+        logger.warning("Razorpay %s failed: HTTP %s — %s", action, response.status_code, detail)
+    else:
+        logger.warning("Razorpay %s failed: %s: %s", action, type(exc).__name__, exc)
+    return ProviderRequestError(f"Razorpay {action} failed: {exc}")
 
 
 def _to_minor_units(amount: Decimal) -> int:
@@ -104,7 +127,7 @@ class RazorpayProvider(PaymentProvider):
                 )
                 response.raise_for_status()
             except httpx.HTTPError as exc:
-                raise ProviderRequestError(f"Razorpay order creation failed: {exc}") from exc
+                raise _request_error("order creation", exc) from exc
 
         body = response.json()
         return ProviderOrder(
@@ -127,7 +150,7 @@ class RazorpayProvider(PaymentProvider):
                 response = client.get(f"/payments/{provider_payment_id}")
                 response.raise_for_status()
             except httpx.HTTPError as exc:
-                raise ProviderRequestError(f"Razorpay payment lookup failed: {exc}") from exc
+                raise _request_error("payment lookup", exc) from exc
 
         body = response.json()
         return ProviderPayment(
@@ -144,7 +167,7 @@ class RazorpayProvider(PaymentProvider):
                 response = client.get(f"/orders/{provider_order_id}")
                 response.raise_for_status()
             except httpx.HTTPError as exc:
-                raise ProviderRequestError(f"Razorpay order lookup failed: {exc}") from exc
+                raise _request_error("order lookup", exc) from exc
 
         body = response.json()
         return ProviderOrder(
@@ -165,7 +188,7 @@ class RazorpayProvider(PaymentProvider):
                 )
                 response.raise_for_status()
             except httpx.HTTPError as exc:
-                raise ProviderRequestError(f"Razorpay refund failed: {exc}") from exc
+                raise _request_error("refund", exc) from exc
 
         body = response.json()
         return ProviderRefund(

@@ -44,7 +44,7 @@ def client():
 
     def override_get_db():
         from sqlalchemy.orm import Session
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db

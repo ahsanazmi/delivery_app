@@ -35,6 +35,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import BackgroundTasks
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -43,6 +44,7 @@ from app.models.order import Order, OrderStatus
 from app.models.payment import Payment
 from app.models.payment import PaymentProvider as PaymentProviderEnum
 from app.models.payment import PaymentStatus
+from app.models.payment_attempt import PaymentAttempt
 from app.models.refund import Refund, RefundStatus
 from app.models.webhook_event import WebhookEvent
 from app.services.notifications import (
@@ -75,6 +77,34 @@ def _record(
     return event
 
 
+_ALREADY_CAPTURED_STATUSES = (
+    PaymentStatus.PAID, PaymentStatus.PARTIALLY_REFUNDED, PaymentStatus.REFUNDED, PaymentStatus.REFUND_PENDING,
+)
+
+
+def _record_captured_attempt(db: Session, payment: Payment, *, provider_order_id: str | None, provider_payment_id: str) -> None:
+    """E2E Validation Phase 13 (Razorpay audit P6) — a capture confirmed only
+    by webhook left no PaymentAttempt behind. An attempt is one provider
+    payment (uq_payment_attempts_provider_payment_id), so this records it, or
+    — when /verify already recorded the same Razorpay payment as failed
+    (e.g. expired after 30 min) — brings that attempt up to date."""
+    attempt = db.scalar(
+        select(PaymentAttempt).where(
+            PaymentAttempt.provider == PaymentProviderEnum.RAZORPAY,
+            PaymentAttempt.provider_payment_id == provider_payment_id,
+        )
+    )
+    if attempt is None:
+        db.add(PaymentAttempt(
+            payment_id=payment.id, provider=PaymentProviderEnum.RAZORPAY, provider_order_id=provider_order_id,
+            provider_payment_id=provider_payment_id, amount=payment.amount, status=PaymentStatus.PAID,
+        ))
+    elif attempt.payment_id == payment.id:
+        attempt.status = PaymentStatus.PAID
+        attempt.failure_code = None
+        attempt.failure_message = None
+
+
 def _handle_payment_captured(
     db: Session, *, raw_body: bytes, payment_entity: dict[str, Any], background_tasks: BackgroundTasks | None = None
 ) -> WebhookEvent:
@@ -94,10 +124,14 @@ def _handle_payment_captured(
             provider_payment_id=provider_payment_id, provider_order_id=provider_order_id,
         )
 
-    if payment.payment_status == PaymentStatus.PAID:
+    if payment.payment_status in _ALREADY_CAPTURED_STATUSES:
         # Idempotent — a redelivered or naturally-duplicate webhook for a
         # payment this backend already marked PAID (very likely via the
         # client's own /verify call already completing first).
+        # E2E Validation Phase 13 (Razorpay audit P5) — and every state a
+        # capture leads to, not just PAID: this used to flip a REFUNDED /
+        # PARTIALLY_REFUNDED payment back to PAID (reproduced live) and
+        # re-send the "payment successful" notifications.
         return _record(
             db, event_type="payment.captured", raw_body=raw_body, outcome="duplicate_ignored",
             provider_payment_id=provider_payment_id, provider_order_id=provider_order_id, payment_id=payment.id,
@@ -122,6 +156,7 @@ def _handle_payment_captured(
     payment.razorpay_payment_id = provider_payment_id
     if not payment.paid_at:
         payment.paid_at = datetime.now(UTC)
+    _record_captured_attempt(db, payment, provider_order_id=provider_order_id, provider_payment_id=provider_payment_id)
 
     order = db.get(Order, payment.order_id)
 
@@ -187,10 +222,11 @@ def _handle_payment_failed(db: Session, *, raw_body: bytes, payment_entity: dict
             provider_payment_id=provider_payment_id, provider_order_id=provider_order_id,
         )
 
-    if payment.payment_status == PaymentStatus.PAID:
+    if payment.payment_status in _ALREADY_CAPTURED_STATUSES:
         # A late/out-of-order failure notification must never downgrade an
         # already-confirmed PAID payment — the capture is the more
-        # authoritative, more recent fact.
+        # authoritative, more recent fact. (E2E Validation Phase 13: nor a
+        # refunded/partially refunded one, which used to become FAILED.)
         return _record(
             db, event_type="payment.failed", raw_body=raw_body, outcome="ignored_already_paid",
             provider_payment_id=provider_payment_id, provider_order_id=provider_order_id, payment_id=payment.id,

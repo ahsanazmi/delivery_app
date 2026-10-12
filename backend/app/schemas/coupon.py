@@ -10,9 +10,9 @@ from app.models.coupon import DiscountType
 class CouponCreate(BaseModel):
     code: str = Field(min_length=3, max_length=64)
     discount_type: DiscountType
-    discount_value: Decimal = Field(gt=0)
-    min_order: Decimal = Field(default=Decimal("0.00"), ge=0)
-    max_discount: Decimal | None = Field(default=None, ge=0)
+    discount_value: Decimal = Field(gt=0, max_digits=10, decimal_places=2)
+    min_order: Decimal = Field(default=Decimal("0.00"), ge=0, max_digits=10, decimal_places=2)
+    max_discount: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
     start_date: datetime | None = None
     end_date: datetime | None = None
     usage_limit: int | None = Field(default=None, ge=1)

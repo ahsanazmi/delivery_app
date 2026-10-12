@@ -234,7 +234,7 @@ def test_tracking_endpoint_over_http():
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
@@ -280,7 +280,7 @@ def test_tracking_endpoint_is_rate_limited_per_customer():
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
@@ -318,7 +318,7 @@ def test_tracking_rate_limit_is_shared_across_a_customers_own_orders_not_per_ord
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db

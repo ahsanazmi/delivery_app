@@ -33,6 +33,29 @@ export function register(payload: RegisterPayload) {
   });
 }
 
+export type RestaurantApplicationPayload = {
+  owner_name: string;
+  email: string;
+  password: string;
+  owner_phone?: string | null;
+  restaurant_name: string;
+  description?: string | null;
+  restaurant_phone: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+};
+
+/** Public "apply as a restaurant partner" — creates the owner login and a
+ * PENDING restaurant that customers can't see until an admin approves it. */
+export function registerRestaurant(payload: RestaurantApplicationPayload) {
+  return apiFetch<{ user: AuthUser }>("/api/v1/auth/register-restaurant", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function login(identifier: string, password: string) {
   const trimmed = identifier.trim();
   const isEmail = trimmed.includes("@");

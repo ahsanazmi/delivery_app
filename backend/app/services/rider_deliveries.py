@@ -461,18 +461,21 @@ def pickup_delivery(db: Session, rider: User, order_id: UUID) -> Order:
     if order.status == OrderStatus.PICKED_UP:
         return order
     assert_rider_approved(db, rider)
-    try:
-        transition_order_status(db, order, OrderStatus.PICKED_UP, f"Picked up by rider {rider.name}")
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-
+    # E2E Validation Phase 18 — the assignment step is staged *before* the
+    # order transition, whose own commit then persists both atomically.
+    # It used to run after that commit: when it failed, the client got a
+    # 409 for an order that had already moved on, and every later step
+    # then failed too.
     assignment, existed_before = _get_or_create_assignment(db, order.id, rider.id)
     if existed_before:
         _transition_assignment_status(assignment, AssignmentStatus.PICKED_UP, idempotent=True)
     else:
         assignment.status = AssignmentStatus.PICKED_UP
     assignment.picked_up_at = datetime.now(UTC)
-    db.commit()
+    try:
+        transition_order_status(db, order, OrderStatus.PICKED_UP, f"Picked up by rider {rider.name}")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.refresh(order)
     return order
 
@@ -487,18 +490,21 @@ def start_delivery(db: Session, rider: User, order_id: UUID) -> Order:
     if order.status == OrderStatus.OUT_FOR_DELIVERY:
         return order
     assert_rider_approved(db, rider)
-    try:
-        transition_order_status(db, order, OrderStatus.OUT_FOR_DELIVERY, f"Out for delivery — rider {rider.name}")
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-
+    # E2E Validation Phase 18 — the assignment step is staged *before* the
+    # order transition, whose own commit then persists both atomically.
+    # It used to run after that commit: when it failed, the client got a
+    # 409 for an order that had already moved on, and every later step
+    # then failed too.
     assignment, existed_before = _get_or_create_assignment(db, order.id, rider.id)
     if existed_before:
         _transition_assignment_status(assignment, AssignmentStatus.OUT_FOR_DELIVERY, idempotent=True)
     else:
         assignment.status = AssignmentStatus.OUT_FOR_DELIVERY
     assignment.out_for_delivery_at = datetime.now(UTC)
-    db.commit()
+    try:
+        transition_order_status(db, order, OrderStatus.OUT_FOR_DELIVERY, f"Out for delivery — rider {rider.name}")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.refresh(order)
     return order
 
@@ -693,11 +699,12 @@ def complete_delivery(db: Session, rider: User, order_id: UUID) -> Order:
             detail="Collect the cash before marking this delivery complete.",
         )
 
-    try:
-        transition_order_status(db, order, OrderStatus.DELIVERED, f"Delivered by rider {rider.name}")
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-
+    # E2E Validation Phase 18 — the assignment step is staged *before* the
+    # order transition, whose own commit then persists both atomically.
+    # It used to run after that commit: when it failed, the client got a
+    # 409 for an order that had already moved on, and every later step
+    # then failed too — and on completion the rider's earning was never recorded, a
+    # retry then hitting the already-DELIVERED early return.
     assignment, existed_before = _get_or_create_assignment(db, order.id, rider.id)
     if existed_before:
         _transition_assignment_status(assignment, AssignmentStatus.DELIVERED, idempotent=True)
@@ -705,6 +712,9 @@ def complete_delivery(db: Session, rider: User, order_id: UUID) -> Order:
         assignment.status = AssignmentStatus.DELIVERED
     assignment.delivered_at = datetime.now(UTC)
     record_delivery_fee_earning(db, rider.id, order)
-    db.commit()
+    try:
+        transition_order_status(db, order, OrderStatus.DELIVERED, f"Delivered by rider {rider.name}")
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     db.refresh(order)
     return order

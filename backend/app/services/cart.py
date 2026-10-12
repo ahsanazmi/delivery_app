@@ -1,13 +1,15 @@
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.cart import Cart, CartItem
 from app.models.coupon import Coupon
 from app.models.product import Product
+from app.models.delivery_partner import ApprovalStatus
 from app.models.restaurant import Restaurant
+from app.schemas.cart import MAX_ITEM_QUANTITY
 from app.services import products as product_service
 from app.services import restaurants as restaurant_service
 from app.services.coupons import calculate_coupon_discount, validate_coupon_for_cart
@@ -46,6 +48,10 @@ def sync_cart_with_catalog(db: Session, cart: Cart) -> list[str]:
             and product.is_available
             and restaurant is not None
             and restaurant.is_active
+            # E2E Validation Phase 11 — same visibility rule as discovery and
+            # add_item: a restaurant that's no longer APPROVED (suspended,
+            # rejected, back to pending) can't take this order anyway.
+            and restaurant.approval_status == ApprovalStatus.APPROVED
         )
         if not still_valid:
             removed_names.append(item.product_name)
@@ -58,6 +64,7 @@ def sync_cart_with_catalog(db: Session, cart: Cart) -> list[str]:
     db.flush()
     if not cart.items:
         cart.restaurant_id = None
+        cart.coupon_id = None
     db.commit()
     db.refresh(cart)
     return removed_names
@@ -120,6 +127,13 @@ def add_item(db: Session, cart: Cart, product_id: UUID, quantity: int) -> CartIt
         db.query(CartItem).filter(CartItem.cart_id == cart.id, CartItem.product_id == product.id).first()
     )
     if cart_item:
+        # E2E Validation Phase 11 — the 1..MAX_ITEM_QUANTITY bound was only
+        # checked per request, so repeated adds stacked one line to any size
+        # (301 units of one dish in live testing). 422, not 409: customer-mobile
+        # treats any 409 from add-to-cart as "cart belongs to another
+        # restaurant" and offers to clear the cart.
+        if cart_item.quantity + quantity > MAX_ITEM_QUANTITY:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"You can add at most {MAX_ITEM_QUANTITY} of one item.")
         cart_item.quantity += quantity
         cart_item.unit_price = product.price
         cart_item.product_name = product.name

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { useSession } from "@/features/auth/session-context";
 import { AdminLayout } from "@/layouts/AdminLayout";
+import AddRestaurant from "@/pages/AddRestaurant";
 import AuditLogs from "@/pages/AuditLogs";
 import Categories from "@/pages/Categories";
 import CODReconciliation from "@/pages/CODReconciliation";
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="/customers" element={<Customers />} />
           <Route path="/customers/:customerId" element={<CustomerDetails />} />
           <Route path="/restaurants" element={<Restaurants />} />
+          <Route path="/restaurants/new" element={<AddRestaurant />} />
           <Route path="/restaurants/:restaurantId" element={<RestaurantDetails />} />
           <Route path="/restaurant-owners" element={<RestaurantOwners />} />
           <Route path="/restaurant-owners/:ownerId" element={<RestaurantOwnerDetails />} />

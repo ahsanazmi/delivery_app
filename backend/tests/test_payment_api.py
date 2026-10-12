@@ -35,7 +35,7 @@ def client():
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db
@@ -138,10 +138,36 @@ def test_create_payment_for_a_nonexistent_order_is_404_not_500(client):
     assert response.status_code == 404
 
 
+def _make_order_online(client, order_id):
+    # create_order() itself refuses "razorpay" while the provider is
+    # unconfigured (as it is in this suite), so an online order is set up
+    # directly, the way one placed while Razorpay was configured would look.
+    from app.models.order import Order
+
+    db = _db(client)
+    db.get(Order, UUID(order_id)).payment_method = "razorpay"
+    db.commit()
+    db.close()
+
+
 def test_create_payment_online_without_credentials_returns_503(client):
     a = _make_customer_with_order(client)
+    _make_order_online(client, a["order_id"])
     response = client.post("/api/v1/payments/create", headers=a["headers"], json={"order_id": a["order_id"], "method": "razorpay"})
     assert response.status_code == 503  # honest refusal — never a fabricated payment
+
+
+def test_create_payment_with_a_method_other_than_the_orders_own_is_a_409(client):
+    # E2E Validation Phase 13 (Razorpay audit P9) — the body's method used to
+    # be trusted: a COD Payment created for an online order left it unpayable.
+    online = _make_customer_with_order(client, tag="b")
+    _make_order_online(client, online["order_id"])
+    response = client.post("/api/v1/payments/create", headers=online["headers"], json={"order_id": online["order_id"], "method": "cod"})
+    assert response.status_code == 409
+
+    cod = _make_customer_with_order(client, tag="c")
+    response = client.post("/api/v1/payments/create", headers=cod["headers"], json={"order_id": cod["order_id"], "method": "razorpay"})
+    assert response.status_code == 409
 
 
 def test_create_payment_ignores_any_amount_field_in_the_request_body(client):

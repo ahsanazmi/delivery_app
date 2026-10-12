@@ -164,7 +164,7 @@ def test_register_push_token_over_http_accepts_device_identifier():
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db

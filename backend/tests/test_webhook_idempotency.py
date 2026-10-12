@@ -243,7 +243,7 @@ def test_http_endpoint_dedupes_by_the_x_razorpay_event_id_header(monkeypatch):
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db

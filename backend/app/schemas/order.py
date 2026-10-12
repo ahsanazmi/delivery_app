@@ -144,3 +144,8 @@ class RestaurantOrderDetailRead(OrderRead):
     rider_latitude: Decimal | None
     rider_longitude: Decimal | None
     rider_location_updated_at: datetime | None
+    # E2E Validation Phase 16 — data minimisation: the restaurant portal never
+    # shows the customer's email (only name, phone and delivery address, which
+    # it needs to fulfil the order), yet this response sent it in full to
+    # every restaurant. Excluded from serialization (and so from the schema).
+    customer_email: str | None = Field(default=None, exclude=True)

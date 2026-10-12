@@ -18,7 +18,9 @@ from app.schemas.admin import (
     AdminRestaurantStatus,
     AdminRestaurantSummary,
 )
+from app.schemas.restaurant_onboarding import RestaurantOnboardingRequest
 from app.services.admin_audit_log import record_admin_audit_log
+from app.services.restaurant_onboarding import create_owner_with_restaurant
 
 _ZERO = Decimal("0.00")
 RECENT_ORDERS_LIMIT = 20
@@ -162,6 +164,22 @@ def get_admin_restaurant_detail(db: Session, restaurant_id: UUID) -> AdminRestau
             for order in recent_orders
         ],
     )
+
+
+def create_admin_restaurant(
+    db: Session, admin: User, payload: RestaurantOnboardingRequest, ip_address: str | None = None
+) -> AdminRestaurantDetail:
+    """Admin portal "Add restaurant" — the owner account and restaurant in
+    one step, live immediately (APPROVED): the admin adding it *is* the
+    approval, so it skips the PENDING review a public application gets."""
+    owner, restaurant = create_owner_with_restaurant(db, payload, approval_status=ApprovalStatus.APPROVED)
+    record_admin_audit_log(
+        db, admin_id=admin.id, action="restaurant.create", target_type="restaurant", target_id=str(restaurant.id),
+        reason=f"Added via admin portal with owner {owner.email}", previous_state=None,
+        new_state=ApprovalStatus.APPROVED.value, ip_address=ip_address,
+    )
+    db.commit()
+    return get_admin_restaurant_detail(db, restaurant.id)
 
 
 # Phase 23 — replaces the old PATCH-with-status generic setter. Named

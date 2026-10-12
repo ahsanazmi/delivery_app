@@ -35,7 +35,14 @@ def create_refresh_token(subject: UUID) -> str:
 
 
 def decode_token(token: str, expected_type: str) -> UUID:
-    payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    # E2E Validation Phase 5 — PyJWT only checks `exp` when it's present; a
+    # token minted without one would otherwise never expire. Every token this
+    # app issues carries exp/sub/type, so requiring them rejects only tokens
+    # that didn't come from _create_token().
+    payload = jwt.decode(
+        token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM],
+        options={"require": ["exp", "sub", "type"]},
+    )
     if payload.get("type") != expected_type or not payload.get("sub"):
         raise jwt.InvalidTokenError("Unexpected token type")
     return UUID(payload["sub"])

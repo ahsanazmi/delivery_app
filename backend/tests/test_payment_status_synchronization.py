@@ -23,7 +23,7 @@ from app.models.restaurant import Restaurant
 from app.models.user import User, UserRole
 from app.services.addresses import create_address
 from app.services.cart import add_item, create_cart_for_user
-from app.services.orders import accept_order, create_order, list_restaurant_orders
+from app.services.orders import accept_order, create_order, list_restaurant_orders, reject_order
 from app.services.payment.payment_service import PaymentService
 from app.services.payment.provider import PaymentProvider, ProviderOrder, ProviderPayment, ProviderRefund
 from app.services.restaurant_dashboard import get_restaurant_dashboard
@@ -170,6 +170,25 @@ def test_restaurant_cannot_accept_an_unpaid_online_order_even_by_direct_id(db, m
 
     db.refresh(order)
     assert order.status == OrderStatus.PLACED  # never moved to CONFIRMED
+
+
+def test_restaurant_cannot_reject_an_unpaid_online_order_even_by_direct_id(db, monkeypatch):
+    """Razorpay Test Mode Phase 12 — rejecting is as much a state change as
+    accepting: done while the customer is still in Checkout, the payment
+    that follows would land in REFUND_PENDING. Same gate as accept."""
+    monkeypatch.setattr(settings, "RAZORPAY_KEY_ID", "rzp_test_fake")
+    monkeypatch.setattr(settings, "RAZORPAY_KEY_SECRET", "fake_secret")
+    customer = _customer(db)
+    restaurant = _restaurant(db, "noreject")
+    order = _order(db, customer, restaurant, payment_method="razorpay")
+
+    with pytest.raises(Exception) as exc_info:
+        reject_order(db, restaurant.id, order.id, "too busy")
+    assert getattr(exc_info.value, "status_code", None) == 409
+
+    db.refresh(order)
+    assert order.status == OrderStatus.PLACED
+    assert order.cancelled_reason is None
 
 
 def test_once_paid_the_order_becomes_visible_and_acceptable(db, monkeypatch):

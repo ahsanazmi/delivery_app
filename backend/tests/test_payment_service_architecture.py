@@ -181,6 +181,18 @@ def test_verify_hmac_signature_accepts_a_genuine_signature_and_rejects_everythin
     assert verify_hmac_signature(payload, genuine, "") is False
 
 
+def test_verify_hmac_signature_rejects_non_ascii_signatures_instead_of_raising():
+    """Razorpay Test Mode Phase 10 — hmac.compare_digest() raises TypeError
+    on a non-ASCII str, which surfaced as a 500 from /verify and the
+    webhook endpoint. Any such signature is simply not genuine."""
+    secret = "test-secret"
+    payload = "order_abc|pay_xyz"
+
+    assert verify_hmac_signature(payload, "é" * 64, secret) is False
+    assert verify_hmac_signature(payload, "\u0000" + "a" * 63, secret) is False
+    assert verify_hmac_signature(payload, "😀", secret) is False
+
+
 # ---------------------------------------------------------------------------
 # RazorpayProvider — real Razorpay-shaped HTTP, mocked transport (no network)
 # ---------------------------------------------------------------------------

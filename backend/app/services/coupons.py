@@ -137,5 +137,21 @@ def remove_coupon_from_cart(db: Session, cart: Cart) -> Cart:
     return cart
 
 
+def lock_and_recheck_coupon_usage(db: Session, coupon_id: UUID, user_id: UUID) -> None:
+    """E2E Validation Phase 15 — usage limits were check-then-insert with no
+    lock: six customers ordering at once all redeemed a usage_limit=1 coupon
+    (reproduced on PostgreSQL). Called inside create_order's transaction just
+    before the redemption is recorded: the row lock makes concurrent orders
+    using the same coupon queue here, and each re-counts redemptions only
+    after the previous one has committed."""
+    coupon = db.scalar(select(Coupon).where(Coupon.id == coupon_id).with_for_update())
+    if coupon is None:
+        raise ValueError("This coupon is no longer available.")
+    if coupon.usage_limit is not None and _coupon_usage_count(db, coupon.id) >= coupon.usage_limit:
+        raise ValueError("This coupon has reached its usage limit.")
+    if coupon.per_customer_limit is not None and _coupon_usage_count(db, coupon.id, user_id) >= coupon.per_customer_limit:
+        raise ValueError("You've already used this coupon the maximum number of times.")
+
+
 def record_coupon_redemption(db: Session, coupon_id: UUID, user_id: UUID, order_id: UUID) -> None:
     db.add(CouponRedemption(coupon_id=coupon_id, user_id=user_id, order_id=order_id))

@@ -1,13 +1,16 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, TypeAdapter, ValidationError, model_validator
 
 from app.models.user import UserRole
+from app.schemas.user import PersonName, PhoneNumber
+
+_EMAIL_ADAPTER = TypeAdapter(EmailStr)
 
 
 class RegisterRequest(BaseModel):
-    name: str = Field(min_length=2, max_length=120)
+    name: PersonName
     email: str
     password: str = Field(min_length=8, max_length=128)
-    phone: str | None = Field(default=None, min_length=8, max_length=20)
+    phone: PhoneNumber | None = None
     role: UserRole | None = UserRole.CUSTOMER
 
     @model_validator(mode="before")
@@ -39,8 +42,16 @@ class RegisterRequest(BaseModel):
     @model_validator(mode="after")
     def validate_email(self):
         value = (self.email or "").strip()
-        if "@" not in value:
-            raise ValueError("Invalid email address")
+        # E2E Validation Phase 5 — validated with the same EmailStr rules as
+        # the UserRead response model. A bare "@" check let addresses like
+        # "user@localhost" register, after which every endpoint returning
+        # UserRead (/auth/me, /users/me, the register response itself) failed
+        # response validation with a 500 — and the half-created account's
+        # email could never be registered again.
+        try:
+            _EMAIL_ADAPTER.validate_python(value)
+        except ValidationError:
+            raise ValueError("Invalid email address") from None
         self.email = value.lower()
         return self
 

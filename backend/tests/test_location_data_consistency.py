@@ -34,7 +34,7 @@ def test_customer_rider_and_admin_all_see_the_same_snapshotted_location_and_none
     Base.metadata.create_all(engine)
 
     def override_get_db():
-        with Session(engine) as session:
+        with Session(engine, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db

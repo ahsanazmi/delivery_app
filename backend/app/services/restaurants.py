@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.search_patterns import LIKE_ESCAPE, contains_pattern
 from app.models.delivery_partner import ApprovalStatus
 from app.models.notification import NotificationType
 from app.models.restaurant import Restaurant
@@ -135,12 +136,12 @@ def list_active_restaurants(
     if category_id is not None:
         statement = statement.where(Restaurant.category_id == category_id)
     if search:
-        query = f"%{search.strip().lower()}%"
+        query = contains_pattern(search)
         statement = statement.where(
             or_(
-                func.lower(Restaurant.name).like(query),
-                func.lower(Restaurant.description).like(query),
-                func.lower(Restaurant.address).like(query),
+                func.lower(Restaurant.name).like(query, escape=LIKE_ESCAPE),
+                func.lower(Restaurant.description).like(query, escape=LIKE_ESCAPE),
+                func.lower(Restaurant.address).like(query, escape=LIKE_ESCAPE),
             )
         )
     statement = statement.order_by(Restaurant.average_rating.desc(), Restaurant.name.asc()).offset(offset).limit(limit)

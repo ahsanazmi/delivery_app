@@ -59,7 +59,6 @@ export type OrderDetail = {
   user_id: string;
   rider_id: string | null;
   customer_name: string;
-  customer_email: string;
   customer_phone: string | null;
   restaurant_id: string | null;
   restaurant_name: string | null;

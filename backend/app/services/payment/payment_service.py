@@ -214,8 +214,9 @@ class PaymentService:
 
         failure_code: str | None = None
         failure_message: str | None = None
+        awaiting_capture = False
 
-        order_matches = payment.razorpay_order_id is not None and provider_order_id == payment.razorpay_order_id
+        order_matches =payment.razorpay_order_id is not None and provider_order_id == payment.razorpay_order_id
         if not order_matches:
             failure_code = "ORDER_MISMATCH"
             failure_message = "This payment does not belong to the given Razorpay order."
@@ -255,6 +256,18 @@ class PaymentService:
                     is_valid = False
                     failure_code = "PAYMENT_NOT_CAPTURED"
                     failure_message = f"Payment is '{fetched_payment.status}' at the provider, not captured."
+                    # Razorpay Test Mode Phase 11 — "authorized" means the
+                    # customer's money is already held and capture is
+                    # pending (Razorpay's auto-capture lag, or a manual-
+                    # capture account). That is not a failure: treating it
+                    # as one told the customer and restaurant "payment
+                    # failed" for money that was then captured moments
+                    # later. Only when everything else about it agrees.
+                    awaiting_capture = (
+                        fetched_payment.status == "authorized"
+                        and fetched_payment.amount == payment.amount == fetched_order.amount
+                        and fetched_payment.currency == payment.currency == fetched_order.currency
+                    )
                 elif fetched_payment.amount != payment.amount or fetched_order.amount != payment.amount:
                     is_valid = False
                     failure_code = "AMOUNT_MISMATCH"
@@ -279,7 +292,7 @@ class PaymentService:
         # error instead of a flat rejection.
         provider_unreachable = failure_code == "PROVIDER_UNREACHABLE"
 
-        if not is_valid and not provider_unreachable and not expired:
+        if not is_valid and not provider_unreachable and not expired and not awaiting_capture:
             # Payment Amount Validation (Phase 15) — a clear, specific log
             # record for every rejection, distinct from the PaymentAttempt
             # audit row and the admin/customer notifications below. Never
@@ -290,10 +303,13 @@ class PaymentService:
                 payment.id, payment.order_id, failure_code, failure_message,
             )
 
+        attempt_status = (
+            PaymentStatus.PAID if is_valid else PaymentStatus.PROCESSING if awaiting_capture else PaymentStatus.FAILED
+        )
         attempt = PaymentAttempt(
             payment_id=payment.id, provider=PaymentProviderEnum.RAZORPAY,
             provider_order_id=provider_order_id, provider_payment_id=provider_payment_id,
-            amount=payment.amount, status=PaymentStatus.PAID if is_valid else PaymentStatus.FAILED,
+            amount=payment.amount, status=attempt_status,
             failure_code=failure_code, failure_message=failure_message,
         )
         db.add(attempt)
@@ -326,7 +342,7 @@ class PaymentService:
                 # never touched across *different* payments or
                 # *different* provider_payment_ids — only this one,
                 # narrow, same-pairing-retried-again case.
-                existing_attempt.status = PaymentStatus.PAID if is_valid else PaymentStatus.FAILED
+                existing_attempt.status = attempt_status
                 existing_attempt.failure_code = failure_code
                 existing_attempt.failure_message = failure_message
                 attempt = existing_attempt
@@ -337,6 +353,7 @@ class PaymentService:
                 # request — the audit-trail row is secondary to that
                 # guarantee holding.
                 is_valid = False
+                awaiting_capture = False
                 failure_code = failure_code or "PROVIDER_ID_ALREADY_USED"
                 failure_message = failure_message or "This payment id has already been used for a different payment."
 
@@ -347,6 +364,20 @@ class PaymentService:
             # knows to be true right now.
             db.commit()
             raise ProviderRequestError("Unable to reach the payment provider right now. Please try again.")
+
+        if awaiting_capture:
+            # Razorpay Test Mode Phase 11 — held, not failed: PROCESSING
+            # (still re-verifiable, never retryable, so the customer can't
+            # pay twice), no failure alerts. The payment.captured webhook
+            # (or a later /verify) completes it.
+            logger.info(
+                "Payment %s (order %s) authorized at the provider, awaiting capture",
+                payment.id, payment.order_id,
+            )
+            payment.payment_status = PaymentStatus.PROCESSING
+            db.commit()
+            db.refresh(payment)
+            return payment
 
         if not is_valid and expired:
             # A closed, terminal state — but a routine one, not an

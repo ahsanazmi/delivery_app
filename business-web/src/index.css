@@ -704,3 +704,67 @@ body {
   text-transform: uppercase;
   color: #b48a3d;
 }
+
+.auth-card.auth-card-wide {
+  max-width: 640px;
+}
+
+.auth-footer {
+  margin: 18px 0 0;
+  text-align: center;
+  font-size: 14px;
+  color: #6d625d;
+}
+
+.auth-footer a {
+  color: #ff5a1f;
+  font-weight: 700;
+}
+
+.form-section-title {
+  font-size: 15px;
+  font-weight: 800;
+  margin: 8px 0 12px;
+}
+
+.field textarea {
+  width: 100%;
+  min-height: 80px;
+  border-radius: 10px;
+  border: 1px solid #e5d9d1;
+  padding: 10px 12px;
+  font-size: 15px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.field textarea:focus {
+  outline: 2px solid #ff5a1f;
+  outline-offset: 1px;
+}
+
+.field .hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6d625d;
+}
+
+.apply-map {
+  margin-bottom: 16px;
+}
+
+.approval-banner {
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-size: 14px;
+  margin-bottom: 16px;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.approval-banner.approval-rejected,
+.approval-banner.approval-suspended {
+  background: #fee4e2;
+  color: #b42318;
+}

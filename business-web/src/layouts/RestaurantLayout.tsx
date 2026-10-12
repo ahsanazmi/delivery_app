@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { useSession } from "@/features/auth/session-context";
 import { getUnreadRestaurantNotificationCount } from "@/services/api/notificationsApi";
+import { getMyRestaurantProfile, type RestaurantSummary } from "@/services/api/restaurantApi";
 
 // Same 15s cadence the notifications page itself polls at — a nav badge
 // lagging the page's own count by up to one interval is an acceptable
@@ -13,6 +14,7 @@ export function RestaurantLayout() {
   const navigate = useNavigate();
   const { user, signOut, accessToken } = useSession();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [restaurant, setRestaurant] = useState<RestaurantSummary | null>(null);
 
   const loadUnreadCount = useCallback(async () => {
     if (!accessToken) return;
@@ -31,6 +33,17 @@ export function RestaurantLayout() {
     }, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [loadUnreadCount]);
+
+  // Loaded once per session so a restaurant still under review (or
+  // rejected/suspended) says so on every page, not just the dashboard.
+  useEffect(() => {
+    if (!accessToken) return;
+    getMyRestaurantProfile(accessToken)
+      .then(({ restaurants }) => setRestaurant(restaurants[0] ?? null))
+      .catch(() => {
+        // Silent — same as the badge: a missing banner must never block the portal.
+      });
+  }, [accessToken]);
 
   async function handleLogout() {
     await signOut();
@@ -72,6 +85,24 @@ export function RestaurantLayout() {
           {unreadCount > 0 && <span className="new-order-badge">{unreadCount}</span>}
         </NavLink>
       </nav>
+      {restaurant?.approval_status === "PENDING" && (
+        <div className="approval-banner" role="status">
+          <strong>Your application is under review.</strong> Set up your menu, categories and hours now. Customers will
+          see {restaurant.name} as soon as our team approves it.
+        </div>
+      )}
+      {restaurant?.approval_status === "REJECTED" && (
+        <div className="approval-banner approval-rejected" role="alert">
+          <strong>Your application was not approved.</strong>
+          {restaurant.rejection_reason ? ` Reason: ${restaurant.rejection_reason}` : ""} Please contact Say Hi Chai
+          support to reapply.
+        </div>
+      )}
+      {restaurant?.approval_status === "SUSPENDED" && (
+        <div className="approval-banner approval-suspended" role="alert">
+          <strong>{restaurant.name} is suspended</strong> and hidden from customers. Please contact Say Hi Chai support.
+        </div>
+      )}
       <Outlet />
     </div>
   );

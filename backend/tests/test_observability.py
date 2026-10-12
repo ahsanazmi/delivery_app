@@ -35,7 +35,7 @@ def engine():
     Base.metadata.create_all(eng)
 
     def override_get_db():
-        with Session(eng) as session:
+        with Session(eng, autoflush=False) as session:
             yield session
 
     app.dependency_overrides[get_db] = override_get_db

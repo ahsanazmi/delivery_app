@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 
 import { useSession } from "@/features/auth/session-context";
 import { ApiError } from "@/services/api/apiClient";
@@ -67,6 +67,9 @@ export default function Login() {
             {loading ? "Signing in…" : "Sign in"}
           </button>
         </form>
+        <p className="auth-footer">
+          New restaurant? <Link to="/apply">Apply to become a partner</Link>
+        </p>
       </div>
     </div>
   );

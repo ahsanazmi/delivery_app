@@ -1,6 +1,8 @@
 import { apiFetch } from "@/services/api/apiClient";
 import type { AuthUser } from "@/services/api/authApi";
 
+export type ApprovalStatus = "PENDING" | "APPROVED" | "REJECTED" | "SUSPENDED";
+
 export type RestaurantSummary = {
   id: string;
   owner_id: string;
@@ -23,6 +25,8 @@ export type RestaurantSummary = {
   average_rating: number | string;
   is_open: boolean;
   is_active: boolean;
+  approval_status: ApprovalStatus;
+  rejection_reason: string | null;
   created_at: string;
   updated_at: string;
 };

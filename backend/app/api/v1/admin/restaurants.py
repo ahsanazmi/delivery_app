@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, status
 
 from app.api.v1.deps import DbSession, require_admin
 from app.models.delivery_partner import ApprovalStatus
@@ -12,8 +12,10 @@ from app.schemas.admin import (
     AdminRestaurantRejectRequest,
     AdminRestaurantStatus,
 )
+from app.schemas.restaurant_onboarding import RestaurantOnboardingRequest
 from app.services.admin_restaurants import (
     approve_admin_restaurant,
+    create_admin_restaurant,
     deactivate_admin_restaurant,
     get_admin_restaurant_detail,
     list_admin_restaurants,
@@ -46,6 +48,17 @@ def list_restaurants(
         page=page,
         limit=limit,
     )
+
+
+@router.post("/restaurants", response_model=AdminRestaurantDetail, status_code=status.HTTP_201_CREATED)
+def create_restaurant(
+    payload: RestaurantOnboardingRequest,
+    db: DbSession,
+    request: Request,
+    current_admin: User = Depends(require_admin),
+) -> AdminRestaurantDetail:
+    ip_address = request.client.host if request.client else None
+    return create_admin_restaurant(db, current_admin, payload, ip_address)
 
 
 # Registered after the plain /restaurants list on purpose — same established

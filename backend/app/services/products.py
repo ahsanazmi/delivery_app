@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.search_patterns import LIKE_ESCAPE, contains_pattern
 from app.models.delivery_partner import ApprovalStatus
 from app.models.product import MenuCategory, Product
 from app.models.restaurant import Restaurant
@@ -114,18 +115,27 @@ def search_products(
     if category_id is not None:
         statement = statement.where(Product.category_id == category_id)
     if q:
-        query = f"%{q.strip().lower()}%"
-        statement = statement.where(func.lower(Product.name).like(query))
+        query = contains_pattern(q)
+        statement = statement.where(func.lower(Product.name).like(query, escape=LIKE_ESCAPE))
     statement = statement.order_by(Product.name.asc()).offset(offset).limit(limit)
     return list(db.scalars(statement))
 
 
 def get_customer_visible_product_or_404(db: Session, product_id: UUID) -> Product:
+    # E2E Validation Phase 10 — the restaurant's own visibility now applies
+    # too (same rule as search_products above). Previously a product of a
+    # PENDING/rejected/suspended or deactivated restaurant — hidden from every
+    # listing, its detail page and its menu — was still served here by id,
+    # and could be added to a cart (cart.add_item uses this lookup).
     product = db.scalar(
-        select(Product).where(
+        select(Product)
+        .join(Restaurant, Restaurant.id == Product.restaurant_id)
+        .where(
             Product.id == product_id,
             Product.is_active.is_(True),
             Product.is_available.is_(True),
+            Restaurant.is_active.is_(True),
+            Restaurant.approval_status == ApprovalStatus.APPROVED,
         )
     )
     if not product:

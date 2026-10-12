@@ -566,20 +566,20 @@ def test_two_concurrent_complete_delivery_calls_never_double_credit_the_rider(cl
     assert order_obj.status == OrderStatus.DELIVERED
 
     # The "losing" concurrent request's own earlier read — still OUT_FOR_DELIVERY,
-    # because it read the order before the winner above had committed. Set
-    # under no_autoflush: a plain attribute assignment would otherwise get
-    # flushed to the database by the very next query (SQLAlchemy's default
-    # autoflush), actually reverting the committed row instead of leaving
-    # this Python object merely stale like a genuine second request's own
-    # earlier read would be.
-    with db2.no_autoflush:
-        order_obj.status = OrderStatus.OUT_FOR_DELIVERY
+    # because it read the order before the winner above had committed.
+    # set_committed_value makes the object look exactly like that stale
+    # *loaded* state — not a pending change. (A plain attribute assignment
+    # would be a dirty change that transition_order_status's own flush, E2E
+    # Validation Phase 9, writes to the database — actually reverting the
+    # committed row, which no genuine stale read would ever do.)
+    from sqlalchemy.orm.attributes import set_committed_value
 
-        try:
-            transition_order_status(db2, order_obj, OrderStatus.DELIVERED, "Delivered by rider (loser)")
-            assert False, "the losing concurrent transition should have been rejected"
-        except ValueError as exc:
-            assert "already changed" in str(exc)
+    set_committed_value(order_obj, "status", OrderStatus.OUT_FOR_DELIVERY)
+    try:
+        transition_order_status(db2, order_obj, OrderStatus.DELIVERED, "Delivered by rider (loser)")
+        assert False, "the losing concurrent transition should have been rejected"
+    except ValueError as exc:
+        assert "already changed" in str(exc)
     db2.close()
 
 

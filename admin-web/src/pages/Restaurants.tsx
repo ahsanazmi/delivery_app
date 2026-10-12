@@ -67,7 +67,12 @@ export default function Restaurants() {
 
   return (
     <>
-      <h2 className="section-title">Restaurants</h2>
+      <div className="detail-header">
+        <h2 className="section-title">Restaurants</h2>
+        <Link to="/restaurants/new" className="btn-primary link-button">
+          + Add restaurant
+        </Link>
+      </div>
 
       {error && <ErrorState message={error} onRetry={load} />}
 

@@ -10,6 +10,8 @@ derived fresh from Payment + RiderSettlement on every request).
 import uuid
 from decimal import Decimal
 
+import pytest
+
 from app.core.security import create_access_token, hash_password
 from app.db.session import get_db
 from app.models.admin_audit_log import AdminAuditLog
@@ -325,3 +327,18 @@ def test_settle_exceeding_outstanding_is_logged_as_a_cod_issue(client, caplog):
         response = client.post(f"{COD_URL}/{rider.id}/settle", headers=headers, json={"amount": "150.00"})
     assert response.status_code == 409
     assert any("COD issue" in r.message for r in caplog.records)
+
+
+@pytest.mark.parametrize("amount", ["0.001", "99.999", "123456789.00"])
+def test_settle_rejects_amounts_the_money_columns_cannot_hold(client, amount):
+    # E2E Validation Phase 14 — 0.001 used to be accepted, rounded to 0.00 on
+    # insert and crash on ck_cod_settlement_allocations_amount_positive (500).
+    db = _db(client)
+    _, headers = _admin_headers(db)
+    rider = _make_rider(db, "93")
+    _make_cod_collection(db, rider=rider, amount=Decimal("100.00"))
+
+    response = client.post(f"{COD_URL}/{rider.id}/settle", headers=headers, json={"amount": amount})
+
+    assert response.status_code == 422
+    assert db.query(RiderSettlement).filter(RiderSettlement.rider_id == rider.id).count() == 0

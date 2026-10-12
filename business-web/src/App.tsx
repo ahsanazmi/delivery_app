@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { useSession } from "@/features/auth/session-context";
 import { RestaurantLayout } from "@/layouts/RestaurantLayout";
+import ApplyPartner from "@/pages/auth/ApplyPartner";
 import Login from "@/pages/auth/Login";
 import Categories from "@/pages/restaurant/Categories";
 import Dashboard from "@/pages/restaurant/Dashboard";
@@ -23,6 +24,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/apply" element={<ApplyPartner />} />
       <Route element={<RestaurantOwnerRoute />}>
         <Route element={<RestaurantLayout />}>
           <Route path="/dashboard" element={<Dashboard />} />
