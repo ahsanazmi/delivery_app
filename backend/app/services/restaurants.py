@@ -127,7 +127,11 @@ def list_active_restaurants(
     limit: int,
     search: str | None = None,
     category_id: UUID | None = None,
+    nearby: dict[UUID, float] | None = None,
 ) -> list[Restaurant]:
+    """`nearby` is restaurants_delivering_to()'s {id: distance_km} for the
+    customer's location: when given, only those restaurants are returned,
+    nearest first, each with a transient `distance_km` attribute."""
     statement: Select[tuple[Restaurant]] = select(Restaurant).where(
         Restaurant.is_active.is_(True), Restaurant.approval_status == ApprovalStatus.APPROVED
     )
@@ -144,6 +148,14 @@ def list_active_restaurants(
                 func.lower(Restaurant.address).like(query, escape=LIKE_ESCAPE),
             )
         )
+    if nearby is not None:
+        # Distance isn't a column, so sort/paginate in Python — the set is
+        # already bounded to restaurants within a few km of one point.
+        restaurants = list(db.scalars(statement.where(Restaurant.id.in_(nearby.keys()))))
+        restaurants.sort(key=lambda r: (nearby[r.id], -r.average_rating, r.name))
+        for restaurant in restaurants:
+            restaurant.distance_km = nearby[restaurant.id]
+        return restaurants[offset : offset + limit]
     statement = statement.order_by(Restaurant.average_rating.desc(), Restaurant.name.asc()).offset(offset).limit(limit)
     return list(db.scalars(statement))
 

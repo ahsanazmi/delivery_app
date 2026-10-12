@@ -36,6 +36,12 @@ class PlatformSettings(Base):
     # figure.
     default_delivery_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
     default_minimum_order: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
+    # How far (straight-line km) a restaurant delivers unless it has its own
+    # Restaurant.delivery_radius_km. Customers only see restaurants whose
+    # radius covers their location, and checkout blocks addresses outside it.
+    default_delivery_radius_km: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), default=Decimal("5.00"), server_default="5.00", nullable=False
+    )
 
     # Notification configuration — a platform-wide kill switch. When False,
     # notify_order_status_change / notify_riders_of_new_delivery /

@@ -97,6 +97,7 @@ def search_products(
     q: str | None = None,
     restaurant_id: UUID | None = None,
     category_id: UUID | None = None,
+    restaurant_ids: set[UUID] | None = None,
     offset: int = 0,
     limit: int = 20,
 ) -> list[Product]:
@@ -112,6 +113,8 @@ def search_products(
     )
     if restaurant_id is not None:
         statement = statement.where(Product.restaurant_id == restaurant_id)
+    if restaurant_ids is not None:
+        statement = statement.where(Product.restaurant_id.in_(restaurant_ids))
     if category_id is not None:
         statement = statement.where(Product.category_id == category_id)
     if q:

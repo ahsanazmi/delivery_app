@@ -11,12 +11,23 @@ export type SearchResponse = {
   limit: number;
 };
 
-export function searchCustomer(params: { q?: string; categoryId?: string; page?: number; limit?: number }) {
+export function searchCustomer(params: {
+  q?: string;
+  categoryId?: string;
+  page?: number;
+  limit?: number;
+  latitude?: number;
+  longitude?: number;
+}) {
   const query = new URLSearchParams();
   if (params.q) query.set('q', params.q);
   if (params.categoryId) query.set('category_id', params.categoryId);
   if (params.page) query.set('page', String(params.page));
   if (params.limit) query.set('limit', String(params.limit));
+  if (params.latitude !== undefined && params.longitude !== undefined) {
+    query.set('latitude', String(params.latitude));
+    query.set('longitude', String(params.longitude));
+  }
   const suffix = query.toString() ? `?${query.toString()}` : '';
   return apiFetch<SearchResponse>(`/api/v1/customer/search${suffix}`);
 }

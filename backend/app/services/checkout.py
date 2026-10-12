@@ -10,6 +10,7 @@ from app.models.user import User
 from app.services.addresses import get_address_for_user, list_addresses
 from app.services.cart import calculate_cart_totals, get_cart_for_user, sync_cart_with_catalog
 from app.services.admin_settings import get_platform_settings
+from app.services.delivery_radius import delivery_range_issue
 from app.services.location_service import distance_km as _distance_km
 from app.services.restaurant_hours import compute_is_accepting_orders, get_hours_for_restaurant
 from app.services.service_areas import is_address_serviceable
@@ -92,7 +93,15 @@ def _checkout_issues(
     if address is not None and not is_address_serviceable(db, address):
         issues.append("Delivery is currently unavailable at this location.")
 
-    issues.extend(validate_delivery_location(address, restaurant))
+    location_issues = validate_delivery_location(address, restaurant)
+    issues.extend(location_issues)
+    # Delivery radius — only checkable once both ends have valid coordinates
+    # (an address without a pinned location falls back to the service-area
+    # check above, same fail-open stance as is_address_serviceable).
+    if not location_issues and address is not None and address.latitude is not None and address.longitude is not None:
+        range_issue = delivery_range_issue(db, restaurant, address.latitude, address.longitude)
+        if range_issue:
+            issues.append(range_issue)
 
     return issues
 

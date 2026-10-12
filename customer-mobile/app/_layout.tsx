@@ -8,6 +8,7 @@ import { LocationPickerProvider } from "@/features/addresses/location-picker-con
 import { PickedPlaceProvider } from "@/features/addresses/place-search-context";
 import { SessionProvider } from "@/features/auth/session-context";
 import { CartProvider } from "@/features/cart/cart-context";
+import { DeliveryLocationProvider } from "@/features/location/delivery-location-context";
 import { NotificationProvider } from "@/features/notifications/notification-provider";
 
 SplashScreen.preventAutoHideAsync();
@@ -19,6 +20,7 @@ export default function RootLayout() {
       <SessionProvider>
         <NotificationProvider>
           <CartProvider>
+            <DeliveryLocationProvider>
             <LocationPickerProvider>
               <PickedPlaceProvider>
                 <AnimatedSplashOverlay />
@@ -48,6 +50,7 @@ export default function RootLayout() {
                 </Stack>
               </PickedPlaceProvider>
             </LocationPickerProvider>
+            </DeliveryLocationProvider>
           </CartProvider>
         </NotificationProvider>
       </SessionProvider>

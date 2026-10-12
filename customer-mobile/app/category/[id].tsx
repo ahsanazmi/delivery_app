@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { locationParams, useDeliveryLocation } from "@/features/location/delivery-location-context";
 import { RestaurantList } from "@/features/restaurants/restaurant-list";
 import { ApiError } from "@/services/api/apiClient";
 import { getCategory } from "@/services/api/categoriesApi";
@@ -12,6 +13,7 @@ import type { Category, Restaurant } from "@/types/restaurant";
 export default function CategoryDetailScreen() {
   const { id, name } = useLocalSearchParams<{ id: string; name?: string }>();
   const router = useRouter();
+  const { location } = useDeliveryLocation();
   const [category, setCategory] = useState<Category | null>(null);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,7 +25,7 @@ export default function CategoryDetailScreen() {
     try {
       const [categoryData, restaurantData] = await Promise.all([
         getCategory(id),
-        getRestaurants({ categoryId: id }),
+        getRestaurants({ categoryId: id, ...locationParams(location) }),
       ]);
       setCategory(categoryData);
       setRestaurants(restaurantData);
@@ -34,7 +36,7 @@ export default function CategoryDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, location]);
 
   useEffect(() => {
     load();

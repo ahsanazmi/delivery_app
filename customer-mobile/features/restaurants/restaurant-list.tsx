@@ -43,7 +43,7 @@ export function RestaurantCard({ restaurant, onPress }: { restaurant: Restaurant
       <View style={styles.cardBody}>
         <View style={styles.cardHeading}><Text numberOfLines={1} style={styles.name}>{restaurant.name}</Text><Text style={styles.rating}>★ {Number(restaurant.rating).toFixed(1)}</Text></View>
         <Text numberOfLines={1} style={styles.address}>{restaurant.address}</Text>
-        <View style={styles.metaRow}><Text style={styles.meta}>Min. order {rupees(restaurant.minimum_order)}</Text><Text style={styles.dot}>•</Text><Text style={styles.meta}>{deliveryLabel(restaurant.delivery_fee)}</Text></View>
+        <View style={styles.metaRow}><Text style={styles.meta}>Min. order {rupees(restaurant.minimum_order)}</Text><Text style={styles.dot}>•</Text><Text style={styles.meta}>{deliveryLabel(restaurant.delivery_fee)}</Text>{restaurant.distance_km != null && (<><Text style={styles.dot}>•</Text><Text style={styles.meta}>{restaurant.distance_km.toFixed(1)} km</Text></>)}</View>
       </View>
     </Pressable>
   );

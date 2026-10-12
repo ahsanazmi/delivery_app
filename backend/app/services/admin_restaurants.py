@@ -20,6 +20,8 @@ from app.schemas.admin import (
 )
 from app.schemas.restaurant_onboarding import RestaurantOnboardingRequest
 from app.services.admin_audit_log import record_admin_audit_log
+from app.services.admin_settings import get_platform_settings
+from app.services.delivery_radius import effective_radius_km
 from app.services.restaurant_onboarding import create_owner_with_restaurant
 
 _ZERO = Decimal("0.00")
@@ -150,6 +152,8 @@ def get_admin_restaurant_detail(db: Session, restaurant_id: UUID) -> AdminRestau
         longitude=restaurant.longitude,
         formatted_address=restaurant.formatted_address,
         place_id=restaurant.place_id,
+        delivery_radius_km=restaurant.delivery_radius_km,
+        effective_delivery_radius_km=effective_radius_km(restaurant, get_platform_settings(db).default_delivery_radius_km),
         menu=[AdminMenuItem(id=p.id, name=p.name, price=p.price, is_active=p.is_active) for p in menu],
         recent_orders=[
             AdminRecentOrder(
@@ -180,6 +184,21 @@ def create_admin_restaurant(
     )
     db.commit()
     return get_admin_restaurant_detail(db, restaurant.id)
+
+
+def update_admin_restaurant_delivery_radius(
+    db: Session, admin: User, restaurant_id: UUID, radius_km: Decimal | None, reason: str, ip_address: str | None = None
+) -> AdminRestaurantDetail:
+    restaurant = _get_restaurant_or_404(db, restaurant_id)
+    previous = restaurant.delivery_radius_km
+    restaurant.delivery_radius_km = radius_km
+    record_admin_audit_log(
+        db, admin_id=admin.id, action="restaurant.delivery_radius", target_type="restaurant", target_id=str(restaurant.id),
+        reason=reason, previous_state=str(previous) if previous is not None else "default",
+        new_state=str(radius_km) if radius_km is not None else "default", ip_address=ip_address,
+    )
+    db.commit()
+    return get_admin_restaurant_detail(db, restaurant_id)
 
 
 # Phase 23 — replaces the old PATCH-with-status generic setter. Named

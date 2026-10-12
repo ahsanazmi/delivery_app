@@ -93,6 +93,8 @@ class RestaurantRead(BaseModel):
     # can see it's still under review (or why it was rejected).
     approval_status: ApprovalStatus
     rejection_reason: str | None
+    # NULL = the platform default radius applies.
+    delivery_radius_km: Decimal | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -117,6 +119,8 @@ class CustomerRestaurantRead(BaseModel):
     minimum_order: Decimal
     delivery_fee: Decimal
     is_open: bool
+    # Only present when the request included the customer's location.
+    distance_km: float | None = None
 
 
 class RestaurantOwnerMe(BaseModel):

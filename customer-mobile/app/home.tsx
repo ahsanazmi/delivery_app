@@ -1,5 +1,5 @@
-import { useRouter } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
     Pressable,
     RefreshControl,
@@ -14,8 +14,8 @@ import { EmptyState, ErrorState, SectionHeader, Skeleton } from "@/components/co
 import { RestaurantCard, RestaurantImage } from "@/features/restaurants/restaurant-list";
 import { useSession } from "@/features/auth/session-context";
 import { useCart } from "@/features/cart/cart-context";
+import { locationParams, useDeliveryLocation } from "@/features/location/delivery-location-context";
 import { ApiError } from "@/services/api/apiClient";
-import { listAddresses, type Address } from "@/services/api/addressesApi";
 import { getCategories } from "@/services/api/categoriesApi";
 import { getAvailableCoupons, type AvailableCoupon } from "@/services/api/couponsApi";
 import { getFavorites } from "@/services/api/favoritesApi";
@@ -46,6 +46,12 @@ export default function HomeScreen() {
   const { user, accessToken } = useSession();
   const router = useRouter();
   const { itemCount } = useCart();
+  const {
+    location,
+    status: locationStatus,
+    refresh: refreshLocation,
+    requestCurrentLocation,
+  } = useDeliveryLocation();
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [featured, setFeatured] = useState<Restaurant[]>([]);
@@ -53,7 +59,6 @@ export default function HomeScreen() {
   const [coreLoading, setCoreLoading] = useState(true);
   const [coreError, setCoreError] = useState<string | null>(null);
 
-  const [defaultAddress, setDefaultAddress] = useState<Address | null>(null);
   const [recentOrders, setRecentOrders] = useState<Order[]>([]);
   const [favorites, setFavorites] = useState<Restaurant[]>([]);
   const [offers, setOffers] = useState<AvailableCoupon[]>([]);
@@ -65,11 +70,16 @@ export default function HomeScreen() {
 
   const loadCore = useCallback(async () => {
     setCoreError(null);
+    // Restaurants are only fetched for a known location — the backend then
+    // returns just the ones that deliver there, nearest first. Categories
+    // don't depend on it, so they load while the location is resolving.
+    const near = locationParams(location);
+    const hasLocation = locationStatus === "ready" && location !== null;
     try {
       const [categoryData, featuredData, popularData] = await Promise.all([
         getCategories(),
-        getRestaurants({ openOnly: true, limit: FEATURED_LIMIT }),
-        getRestaurants({ limit: POPULAR_PAGE_SIZE }),
+        hasLocation ? getRestaurants({ openOnly: true, limit: FEATURED_LIMIT, ...near }) : Promise.resolve([]),
+        hasLocation ? getRestaurants({ limit: POPULAR_PAGE_SIZE, ...near }) : Promise.resolve([]),
       ]);
       setCategories(categoryData);
       setFeatured(featuredData);
@@ -79,30 +89,22 @@ export default function HomeScreen() {
         error instanceof ApiError ? error.message : "Unable to load the home screen right now.",
       );
     }
-  }, []);
+  }, [location, locationStatus]);
 
   const loadPersonalized = useCallback(async () => {
     if (!accessToken) {
-      setDefaultAddress(null);
       setRecentOrders([]);
       setFavorites([]);
       setOffers([]);
       return;
     }
     setPersonalizedLoading(true);
-    const [addressesResult, ordersResult, favoritesResult, offersResult] = await Promise.allSettled([
-      listAddresses(accessToken),
+    const [ordersResult, favoritesResult, offersResult] = await Promise.allSettled([
       listOrders(accessToken, { limit: 3 }),
       getFavorites(accessToken),
       getAvailableCoupons(accessToken),
     ]);
 
-    if (addressesResult.status === "fulfilled") {
-      const addresses = addressesResult.value;
-      setDefaultAddress(addresses.find((address) => address.is_default) ?? addresses[0] ?? null);
-    } else {
-      setDefaultAddress(null);
-    }
     setRecentOrders(ordersResult.status === "fulfilled" ? ordersResult.value : []);
     setFavorites(favoritesResult.status === "fulfilled" ? favoritesResult.value : []);
     setOffers(offersResult.status === "fulfilled" ? offersResult.value : []);
@@ -118,16 +120,31 @@ export default function HomeScreen() {
     loadAll().finally(() => setCoreLoading(false));
   }, [loadAll]);
 
+  // Coming back from the addresses screen may have changed the default
+  // address — re-read it so the list matches. Skips the first focus, which
+  // the provider's own initial resolve already covers.
+  const hasFocusedOnce = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasFocusedOnce.current) {
+        hasFocusedOnce.current = true;
+        return;
+      }
+      if (accessToken) void refreshLocation();
+    }, [accessToken, refreshLocation]),
+  );
+
   function handleRefresh() {
     setRefreshing(true);
-    loadAll().finally(() => setRefreshing(false));
+    // A changed location also re-runs loadCore through its dependency.
+    Promise.all([refreshLocation(), loadAll()]).finally(() => setRefreshing(false));
   }
 
-  const locationLabel = accessToken
-    ? defaultAddress
-      ? `${defaultAddress.label}, ${defaultAddress.city}`
-      : "Add a delivery address"
-    : "Sign in to set your location";
+  const restaurantsLoading = coreLoading || locationStatus === "loading";
+  const locationLabel =
+    locationStatus === "loading"
+      ? "Finding your location…"
+      : location?.label ?? "Set your delivery location";
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -139,7 +156,7 @@ export default function HomeScreen() {
         <View style={styles.topRow}>
           <Pressable
             style={styles.locationWrap}
-            onPress={() => router.push(accessToken ? "/checkout" : "/login")}
+            onPress={() => (accessToken ? router.push("/addresses") : void requestCurrentLocation())}
           >
             <Text style={styles.brand}>SAY HI CHAI</Text>
             <Text style={styles.locationText}>Deliver to</Text>
@@ -283,10 +300,10 @@ export default function HomeScreen() {
               </>
             )}
 
-            {(coreLoading || featured.length > 0) && (
+            {(restaurantsLoading || featured.length > 0) && (
               <>
                 <SectionHeader title="Featured restaurants" />
-                {coreLoading ? (
+                {restaurantsLoading ? (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
                     {Array.from({ length: 3 }).map((_, index) => (
                       <Skeleton key={index} style={styles.featuredSkeleton} />
@@ -378,7 +395,7 @@ export default function HomeScreen() {
               onAction={() => router.push("/restaurants")}
             />
 
-            {coreLoading ? (
+            {restaurantsLoading ? (
               <View style={{ gap: 14 }}>
                 {Array.from({ length: 3 }).map((_, index) => (
                   <View key={index} style={styles.popularSkeletonCard}>
@@ -388,11 +405,25 @@ export default function HomeScreen() {
                   </View>
                 ))}
               </View>
+            ) : locationStatus === "none" ? (
+              <EmptyState
+                emoji="📍"
+                title="Set your delivery location"
+                message={
+                  accessToken
+                    ? "Allow location access, or pin a saved address on the map, to see restaurants that deliver to you."
+                    : "Allow location access to see restaurants that deliver to you."
+                }
+                actionLabel="Use my current location"
+                onAction={() => void requestCurrentLocation()}
+              />
             ) : popular.length === 0 ? (
               <EmptyState
-                emoji="🍽️"
-                title="No restaurants are available right now"
-                message="Pull down to refresh, or check back shortly."
+                emoji="🛵"
+                title="No restaurants deliver here yet"
+                message={`We're not delivering to ${location?.label ?? "this location"} yet. Try another address, or check back soon.`}
+                actionLabel={accessToken ? "Change address" : undefined}
+                onAction={accessToken ? () => router.push("/addresses") : undefined}
               />
             ) : (
               popular.map((restaurant) => (

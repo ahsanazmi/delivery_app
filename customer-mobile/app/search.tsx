@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { locationParams, useDeliveryLocation } from "@/features/location/delivery-location-context";
 import { getCategories } from "@/services/api/categoriesApi";
 import { ApiError } from "@/services/api/apiClient";
 import { searchCustomer } from "@/services/api/searchApi";
@@ -24,6 +25,7 @@ const DEBOUNCE_MS = 350;
 
 export default function SearchScreen() {
   const router = useRouter();
+  const { location } = useDeliveryLocation();
   const [query, setQuery] = useState("");
   const [categories, setCategories] = useState<Category[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -56,6 +58,7 @@ export default function SearchScreen() {
         const result = await searchCustomer({
           q: searchTerm.trim() || undefined,
           categoryId: categoryId ?? undefined,
+          ...locationParams(location),
         });
         setRestaurants(result.restaurants);
         setProducts(result.products);
@@ -66,7 +69,7 @@ export default function SearchScreen() {
         setLoading(false);
       }
     },
-    [],
+    [location],
   );
 
   useEffect(() => {

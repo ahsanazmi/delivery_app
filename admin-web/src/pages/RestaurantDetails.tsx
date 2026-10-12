@@ -16,6 +16,7 @@ import {
   reactivateAdminRestaurant,
   rejectAdminRestaurant,
   suspendAdminRestaurant,
+  updateAdminRestaurantDeliveryRadius,
   type AdminRestaurantDetail,
 } from "@/services/api/adminApi";
 
@@ -110,6 +111,37 @@ export default function RestaurantDetails() {
     const reason = await promptText({ title: `Why is ${restaurant.name} being reinstated?`, label: "Reason", required: true });
     if (!reason || !reason.trim()) return;
     await runApprovalAction(() => activateAdminRestaurant(accessToken, restaurantId, reason.trim()), `${restaurant.name} reinstated.`);
+  }
+
+  async function handleChangeRadius() {
+    if (!accessToken || !restaurantId || !restaurant) return;
+    const value = await promptText({
+      title: `Delivery radius for ${restaurant.name}`,
+      label: "Radius in km — leave empty to use the platform default",
+      defaultValue: restaurant.delivery_radius_km ? String(Number(restaurant.delivery_radius_km)) : "",
+    });
+    if (value === null) return;
+    const trimmed = value.trim();
+    const radius = trimmed === "" ? null : Number(trimmed);
+    if (radius !== null && (!Number.isFinite(radius) || radius <= 0 || radius > 100)) {
+      toast.error("Enter a radius between 0.5 and 100 km, or leave it empty.");
+      return;
+    }
+    setUpdating(true);
+    try {
+      const updated = await updateAdminRestaurantDeliveryRadius(
+        accessToken,
+        restaurantId,
+        radius,
+        radius === null ? "Reset to platform default" : `Set to ${radius} km from restaurant page`,
+      );
+      setRestaurant(updated);
+      toast.success(`${restaurant.name} now delivers within ${Number(updated.effective_delivery_radius_km)} km.`);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Unable to update delivery radius.");
+    } finally {
+      setUpdating(false);
+    }
   }
 
   if (loading) {
@@ -214,6 +246,16 @@ export default function RestaurantDetails() {
         {/* Maps & Location System Phase 3 — "Admin should be able to
             inspect the location." Text summary here; the map itself is
             below (Phase 11). */}
+        <div className="stat-card">
+          <div className="label">Delivery radius</div>
+          <div className="value" style={{ fontSize: 16 }}>{Number(restaurant.effective_delivery_radius_km)} km</div>
+          <div className="muted" style={{ fontSize: 12, margin: "4px 0 8px" }}>
+            {restaurant.delivery_radius_km ? "Custom for this restaurant" : "Platform default"}
+          </div>
+          <button className="btn-secondary" onClick={handleChangeRadius} disabled={updating}>
+            Change
+          </button>
+        </div>
         <div className="stat-card">
           <div className="label">Location</div>
           <div className="value" style={{ fontSize: 13 }}>

@@ -16,6 +16,9 @@ from app.services.addresses import create_address
 from app.services.cart import add_item, create_cart_for_user
 from app.services.orders import cancel_order, create_order, transition_order_status
 
+# Fixture addresses are far from the fixture restaurant; see conftest.no_delivery_radius_limit.
+pytestmark = pytest.mark.usefixtures("no_delivery_radius_limit")
+
 
 @pytest.fixture()
 def db():

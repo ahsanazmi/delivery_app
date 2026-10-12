@@ -52,3 +52,13 @@ def client():
         yield test_client
     app.dependency_overrides.clear()
     Base.metadata.drop_all(engine)
+
+
+@pytest.fixture()
+def no_delivery_radius_limit(monkeypatch):
+    """For tests whose fixtures predate the delivery-radius rule and place
+    the customer's address far from the restaurant (e.g. 12.1,77.1 vs
+    Bengaluru, ~110 km) — they test order/location/rider behaviour, not
+    the radius, so checkout's range check is switched off for them.
+    tests/test_delivery_radius.py covers the rule itself."""
+    monkeypatch.setattr("app.services.checkout.delivery_range_issue", lambda *args, **kwargs: None)

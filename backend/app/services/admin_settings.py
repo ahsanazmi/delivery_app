@@ -8,7 +8,7 @@ from app.services.admin_audit_log import record_admin_audit_log
 
 _UPDATABLE_FIELDS = (
     "platform_name", "support_email", "support_phone", "default_delivery_fee",
-    "default_minimum_order", "notifications_enabled", "maintenance_mode",
+    "default_minimum_order", "default_delivery_radius_km", "notifications_enabled", "maintenance_mode",
 )
 
 

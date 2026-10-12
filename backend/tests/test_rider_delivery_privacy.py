@@ -10,8 +10,13 @@ longer in progress — the rider has no further operational need for them.
 
 from decimal import Decimal
 
+import pytest
+
 from app.core.security import create_access_token, hash_password
 from app.models.user import User, UserRole
+
+# Fixture addresses are far from the fixture restaurant; see conftest.no_delivery_radius_limit.
+pytestmark = pytest.mark.usefixtures("no_delivery_radius_limit")
 
 
 def _register_and_login_rider(client, email="rider-privacy@example.com", phone="9940000010", name="Ravi Kumar"):

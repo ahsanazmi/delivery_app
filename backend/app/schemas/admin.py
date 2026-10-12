@@ -195,10 +195,19 @@ class AdminRestaurantDetail(AdminRestaurantSummary):
     longitude: Decimal
     formatted_address: str | None
     place_id: str | None
+    # NULL = uses the platform default; effective_* is what actually applies.
+    delivery_radius_km: Decimal | None
+    effective_delivery_radius_km: Decimal
 
 
 class AdminRestaurantRejectRequest(BaseModel):
     rejection_reason: str = Field(min_length=1, max_length=1000)
+
+
+class AdminRestaurantDeliveryRadiusUpdate(BaseModel):
+    # null clears the override so the platform default applies again.
+    delivery_radius_km: Decimal | None = Field(gt=0, le=100, max_digits=5, decimal_places=2)
+    reason: str = Field(min_length=1, max_length=500)
 
 
 # Just the owner's own on/off switch (User.is_active) — "Activation" and
@@ -878,6 +887,7 @@ class AdminPlatformSettingsRead(BaseModel):
     support_phone: str | None
     default_delivery_fee: Decimal
     default_minimum_order: Decimal
+    default_delivery_radius_km: Decimal
     notifications_enabled: bool
     maintenance_mode: bool
     updated_at: datetime
@@ -889,6 +899,7 @@ class AdminPlatformSettingsUpdate(BaseModel):
     support_phone: str | None = Field(default=None, max_length=20)
     default_delivery_fee: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
     default_minimum_order: Decimal | None = Field(default=None, ge=0, max_digits=10, decimal_places=2)
+    default_delivery_radius_km: Decimal | None = Field(default=None, gt=0, le=100, max_digits=5, decimal_places=2)
     notifications_enabled: bool | None = None
     maintenance_mode: bool | None = None
     # Not persisted — recorded on the audit log entry this update writes.
@@ -900,7 +911,8 @@ class AdminPlatformSettingsUpdate(BaseModel):
             value is None
             for value in (
                 self.platform_name, self.support_email, self.support_phone, self.default_delivery_fee,
-                self.default_minimum_order, self.notifications_enabled, self.maintenance_mode,
+                self.default_minimum_order, self.default_delivery_radius_km, self.notifications_enabled,
+                self.maintenance_mode,
             )
         ):
             raise ValueError("Provide at least one field to update")

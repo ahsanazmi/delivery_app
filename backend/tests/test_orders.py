@@ -13,6 +13,9 @@ from app.services.addresses import create_address, set_default_address
 from app.services.cart import add_item, create_cart_for_user
 from app.services.orders import create_order
 
+# Fixture addresses are far from the fixture restaurant; see conftest.no_delivery_radius_limit.
+pytestmark = pytest.mark.usefixtures("no_delivery_radius_limit")
+
 
 def _db_session() -> Session:
     engine = create_engine("sqlite:///:memory:")

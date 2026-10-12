@@ -311,6 +311,9 @@ export type AdminRestaurantDetail = AdminRestaurantSummary & {
   longitude: string;
   formatted_address: string | null;
   place_id: string | null;
+  // null = this restaurant uses the platform default radius.
+  delivery_radius_km: string | null;
+  effective_delivery_radius_km: string;
 };
 
 export type AdminRestaurantListParams = {
@@ -365,6 +368,22 @@ export function createAdminRestaurant(accessToken: string, payload: AdminRestaur
 export function getAdminRestaurantDetail(accessToken: string, restaurantId: string) {
   return apiFetch<AdminRestaurantDetail>(`/api/v1/admin/restaurants/${restaurantId}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
+  });
+}
+
+export function updateAdminRestaurantDeliveryRadius(
+  accessToken: string,
+  restaurantId: string,
+  deliveryRadiusKm: number | null,
+  reason: string,
+) {
+  return apiFetch<AdminRestaurantDetail>(`/api/v1/admin/restaurants/${restaurantId}/delivery-radius`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ delivery_radius_km: deliveryRadiusKm, reason }),
   });
 }
 
@@ -1412,6 +1431,7 @@ export type AdminPlatformSettings = {
   support_phone: string | null;
   default_delivery_fee: string;
   default_minimum_order: string;
+  default_delivery_radius_km: string;
   notifications_enabled: boolean;
   maintenance_mode: boolean;
   updated_at: string;
@@ -1423,6 +1443,7 @@ export type AdminPlatformSettingsUpdate = Partial<{
   support_phone: string;
   default_delivery_fee: string;
   default_minimum_order: string;
+  default_delivery_radius_km: string;
   notifications_enabled: boolean;
   maintenance_mode: boolean;
   reason: string;

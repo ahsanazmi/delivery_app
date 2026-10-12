@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ErrorState, Skeleton } from '@/components/common/ui';
 import { useSession } from '@/features/auth/session-context';
+import { locationParams, useDeliveryLocation } from '@/features/location/delivery-location-context';
 import { ApiError } from '@/services/api/apiClient';
 import { getRestaurants, Restaurant } from '@/services/api/restaurantsApi';
 import { RestaurantList } from './restaurant-list';
@@ -14,6 +15,7 @@ const PAGE_SIZE = 10;
 export function RestaurantsHome() {
   const { user, signOut } = useSession();
   const router = useRouter();
+  const { location } = useDeliveryLocation();
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -25,7 +27,7 @@ export function RestaurantsHome() {
   const loadFirstPage = useCallback(async () => {
     setError(null);
     try {
-      const data = await getRestaurants({ offset: 0, limit: PAGE_SIZE });
+      const data = await getRestaurants({ offset: 0, limit: PAGE_SIZE, ...locationParams(location) });
       setRestaurants(data);
       setOffset(data.length);
       setHasMore(data.length === PAGE_SIZE);
@@ -35,7 +37,7 @@ export function RestaurantsHome() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [location]);
 
   useEffect(() => {
     loadFirstPage();
@@ -45,7 +47,7 @@ export function RestaurantsHome() {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const data = await getRestaurants({ offset, limit: PAGE_SIZE });
+      const data = await getRestaurants({ offset, limit: PAGE_SIZE, ...locationParams(location) });
       setRestaurants((current) => [...current, ...data]);
       setOffset((current) => current + data.length);
       setHasMore(data.length === PAGE_SIZE);

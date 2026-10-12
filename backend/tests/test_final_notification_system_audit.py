@@ -40,6 +40,9 @@ from app.services.notifications import (
 from app.services.orders import assign_rider_to_order, create_order, get_user_order, transition_order_status
 from app.services.rider_deliveries import accept_delivery, collect_cod_payment, pickup_delivery, start_delivery
 
+# Fixture addresses are far from the fixture restaurant; see conftest.no_delivery_radius_limit.
+pytestmark = pytest.mark.usefixtures("no_delivery_radius_limit")
+
 
 @pytest.fixture()
 def db():

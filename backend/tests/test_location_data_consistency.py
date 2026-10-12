@@ -10,6 +10,7 @@ every role that reads an order's delivery location.
 
 from decimal import Decimal
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
@@ -27,6 +28,9 @@ from app.models.user import User, UserRole
 from app.services.addresses import create_address
 from app.services.cart import add_item, create_cart_for_user
 from app.services.orders import create_order
+
+# Fixture addresses are far from the fixture restaurant; see conftest.no_delivery_radius_limit.
+pytestmark = pytest.mark.usefixtures("no_delivery_radius_limit")
 
 
 def test_customer_rider_and_admin_all_see_the_same_snapshotted_location_and_none_of_them_change_when_the_address_is_edited():

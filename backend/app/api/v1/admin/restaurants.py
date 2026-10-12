@@ -7,6 +7,7 @@ from app.models.delivery_partner import ApprovalStatus
 from app.models.user import User
 from app.schemas.admin import (
     AdminAccountActionRequest,
+    AdminRestaurantDeliveryRadiusUpdate,
     AdminRestaurantDetail,
     AdminRestaurantListResponse,
     AdminRestaurantRejectRequest,
@@ -23,6 +24,7 @@ from app.services.admin_restaurants import (
     reinstate_admin_restaurant,
     reject_admin_restaurant,
     suspend_admin_restaurant,
+    update_admin_restaurant_delivery_radius,
 )
 
 router = APIRouter()
@@ -66,6 +68,20 @@ def create_restaurant(
 @router.get("/restaurants/{restaurant_id}", response_model=AdminRestaurantDetail)
 def get_restaurant(restaurant_id: UUID, db: DbSession, current_admin: User = Depends(require_admin)) -> AdminRestaurantDetail:
     return get_admin_restaurant_detail(db, restaurant_id)
+
+
+@router.patch("/restaurants/{restaurant_id}/delivery-radius", response_model=AdminRestaurantDetail)
+def update_delivery_radius(
+    restaurant_id: UUID,
+    payload: AdminRestaurantDeliveryRadiusUpdate,
+    db: DbSession,
+    request: Request,
+    current_admin: User = Depends(require_admin),
+) -> AdminRestaurantDetail:
+    ip_address = request.client.host if request.client else None
+    return update_admin_restaurant_delivery_radius(
+        db, current_admin, restaurant_id, payload.delivery_radius_km, payload.reason, ip_address
+    )
 
 
 # Phase 23 — replaces the old PATCH /restaurants/{id} generic status

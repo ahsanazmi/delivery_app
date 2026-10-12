@@ -9,6 +9,9 @@ export type GetRestaurantsParams = {
   openOnly?: boolean;
   offset?: number;
   limit?: number;
+  /** The customer's location: results are limited to restaurants that deliver there, nearest first. */
+  latitude?: number;
+  longitude?: number;
 };
 
 export function getRestaurants(params?: GetRestaurantsParams) {
@@ -18,6 +21,10 @@ export function getRestaurants(params?: GetRestaurantsParams) {
   if (params?.openOnly) query.set('open_only', 'true');
   if (params?.offset !== undefined) query.set('offset', String(params.offset));
   if (params?.limit !== undefined) query.set('limit', String(params.limit));
+  if (params?.latitude !== undefined && params?.longitude !== undefined) {
+    query.set('latitude', String(params.latitude));
+    query.set('longitude', String(params.longitude));
+  }
   const suffix = query.toString() ? `?${query.toString()}` : '';
   return apiFetch<Restaurant[]>(`/api/v1/customer/restaurants${suffix}`);
 }

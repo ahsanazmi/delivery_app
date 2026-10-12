@@ -25,6 +25,9 @@ from app.services.notifications import maybe_notify_rider_approaching
 from app.services.orders import assign_rider_to_order, create_order, transition_order_status
 from app.services.rider_location import update_rider_location
 
+# Fixture addresses are far from the fixture restaurant; see conftest.no_delivery_radius_limit.
+pytestmark = pytest.mark.usefixtures("no_delivery_radius_limit")
+
 # The delivery address sits here; a rider a few meters away is "approaching,"
 # one ~1.1km away (roughly one degree-of-latitude/100 in this region) is not.
 DELIVERY_LAT = Decimal("12.9700")

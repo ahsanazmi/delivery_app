@@ -11,6 +11,8 @@ export type Restaurant = {
   minimum_order: string | number;
   delivery_fee: string | number;
   is_open: boolean;
+  /** Straight-line km from the customer; only set when a location was sent. */
+  distance_km?: number | null;
 };
 
 export type Category = {

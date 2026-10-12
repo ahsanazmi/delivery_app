@@ -23,6 +23,8 @@ import subprocess
 import sys
 from decimal import Decimal
 
+import pytest
+
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.address import Address
@@ -33,6 +35,9 @@ from app.models.user import User, UserRole
 from app.services.addresses import create_address
 from app.services.cart import add_item, create_cart_for_user
 from app.services.orders import create_order
+
+# Fixture addresses are far from the fixture restaurant; see conftest.no_delivery_radius_limit.
+pytestmark = pytest.mark.usefixtures("no_delivery_radius_limit")
 
 
 def test_alembic_migration_chain_has_a_single_linear_head():

@@ -29,6 +29,7 @@ export default function Settings() {
     support_phone: "",
     default_delivery_fee: "",
     default_minimum_order: "",
+    default_delivery_radius_km: "",
     notifications_enabled: true,
     maintenance_mode: false,
   });
@@ -54,6 +55,7 @@ export default function Settings() {
         support_phone: settingsResponse.support_phone ?? "",
         default_delivery_fee: settingsResponse.default_delivery_fee,
         default_minimum_order: settingsResponse.default_minimum_order,
+        default_delivery_radius_km: settingsResponse.default_delivery_radius_km,
         notifications_enabled: settingsResponse.notifications_enabled,
         maintenance_mode: settingsResponse.maintenance_mode,
       });
@@ -85,6 +87,7 @@ export default function Settings() {
         support_phone: form.support_phone || undefined,
         default_delivery_fee: form.default_delivery_fee,
         default_minimum_order: form.default_minimum_order,
+        default_delivery_radius_km: form.default_delivery_radius_km,
         notifications_enabled: form.notifications_enabled,
         maintenance_mode: form.maintenance_mode,
         reason: "Updated from Admin Settings page",
@@ -178,6 +181,20 @@ export default function Settings() {
             type="number" step="0.01" min="0"
             value={form.default_minimum_order}
             onChange={(e) => setForm((f) => ({ ...f, default_minimum_order: e.target.value }))}
+          />
+        </div>
+
+        <h3 className="section-title" style={{ fontSize: 16, marginTop: 24 }}>Delivery range</h3>
+        <p className="muted" style={{ marginTop: -8 }}>
+          Customers only see restaurants within this distance of their location, and can't order from further away.
+          A restaurant can have its own range instead — set it on that restaurant's page.
+        </p>
+        <div className="field">
+          <label>Default delivery radius (km)</label>
+          <input
+            type="number" step="0.5" min="0.5" max="100"
+            value={form.default_delivery_radius_km}
+            onChange={(e) => setForm((f) => ({ ...f, default_delivery_radius_km: e.target.value }))}
           />
         </div>
 

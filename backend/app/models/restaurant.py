@@ -16,6 +16,7 @@ class Restaurant(Base):
         CheckConstraint("delivery_fee >= 0", name="ck_restaurants_delivery_fee_nonnegative"),
         CheckConstraint("average_rating >= 0 AND average_rating <= 5", name="ck_restaurants_average_rating_range"),
         CheckConstraint("total_ratings >= 0", name="ck_restaurants_total_ratings_nonnegative"),
+        CheckConstraint("delivery_radius_km IS NULL OR delivery_radius_km > 0", name="ck_restaurants_delivery_radius_positive"),
         CheckConstraint("latitude >= -90 AND latitude <= 90", name="ck_restaurants_latitude_range"),
         CheckConstraint("longitude >= -180 AND longitude <= 180", name="ck_restaurants_longitude_range"),
         Index("ix_restaurants_active_open", "is_active", "is_open"),
@@ -45,6 +46,9 @@ class Restaurant(Base):
     minimum_order: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
     delivery_fee: Mapped[Decimal] = mapped_column(Numeric(10, 2), default=Decimal("0.00"), nullable=False)
     delivery_time_minutes: Mapped[int] = mapped_column(Integer, default=30, nullable=False)
+    # NULL = use PlatformSettings.default_delivery_radius_km. Set by an admin
+    # only for restaurants that deliver further/nearer than the platform default.
+    delivery_radius_km: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     average_rating: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=Decimal("0.00"), nullable=False)
     # Reviews & Ratings Phase 6 — a plain count alongside average_rating, kept
     # in sync by the same synchronous aggregation recompute (Phase 25-27) so
